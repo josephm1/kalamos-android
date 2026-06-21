@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- The single app WebView (library + editor views) is the reused, pre-warmed instance from
+         WebViewCache.app, added programmatically at index 0 (below the ink surface). The
+         InkSurfaceView is the TOP child, base-layer — the visible writing layer in editor mode; it
+         is hidden (GONE) in library mode so the WebView shows through. -->
+    <com.kalamos.notebook.view.InkSurfaceView
+        android:id="@+id/inkSurfaceView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+</FrameLayout>

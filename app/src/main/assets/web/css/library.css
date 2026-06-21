@@ -1,0 +1,57 @@
+#library-view{display:flex;flex-direction:column;height:100%;background:#fff}
+
+/* Header / folder bar / pagination are WHITE, separated by thick BLACK lines (not grey fills). */
+#header{display:flex;align-items:center;padding:10px 14px;background:#fff;border-bottom:3px solid #000;gap:10px;flex-shrink:0}
+#header h1{font-size:22px;font-weight:700;flex:1}
+#header .btn{padding:6px 12px;min-height:48px;min-width:48px;font-size:18px}
+
+#folder-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fff;border-bottom:2px solid #000;overflow-x:auto;flex-shrink:0;flex-wrap:wrap}
+#folder-bar .folder-btn{font-size:15px;font-weight:500;padding:6px 14px;background:#fff;border:2px solid #000;border-radius:8px;color:#000;white-space:nowrap;min-height:42px}
+#folder-bar .folder-btn.active{background:#000;color:#fff}
+#folder-bar .folder-btn .delete-fold{display:none;margin-left:8px;font-size:15px;line-height:1}
+#folder-bar .folder-btn.active .delete-fold{display:inline}
+#folder-input{font-size:15px;padding:6px 10px;border:2px solid #000;border-radius:8px;min-height:42px;width:130px}
+
+/* Fixed 3x3 of equal cells: explicit equal columns AND rows divide the grid evenly. */
+#grid{flex:1;min-height:0;overflow:hidden;padding:20px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:28px}
+
+#pagination{display:flex;align-items:center;justify-content:center;gap:24px;padding:12px;flex-shrink:0;border-top:3px solid #000;background:#fff}
+#pagination:empty{display:none}
+.page-btn{font-size:20px;line-height:1;padding:8px 24px;background:#fff;border:3px solid #000;border-radius:10px;color:#000;min-height:50px}
+.page-btn:active{background:#000;color:#fff}
+.page-btn:disabled{opacity:0.25}
+.page-label{font-size:17px;font-weight:600;min-width:64px;text-align:center}
+
+/* Cards: white tile, thick black rounded outline; the thumb fills the cell. */
+.note-card{cursor:pointer;overflow:hidden;background:#fff;border:3px solid #000;border-radius:16px;display:flex;flex-direction:column}
+.note-card:active{background:#eee}
+.note-card .thumb{flex:1;min-height:0;position:relative;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;border-bottom:3px solid #000}
+.note-card .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+/* Monochrome "no preview" placeholder (a page outline) — hides the coloured 📄 emoji. */
+.note-card .thumb .empty-icon{width:46px;height:58px;border:3px solid #000;border-radius:4px;color:transparent;font-size:0}
+.note-card .info{padding:8px 10px;flex-shrink:0}
+.note-card .info .title{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px}
+.note-card .info .meta{font-size:13px;color:#333}
+.note-card .info .folder-badge{display:inline-block;border:2px solid #000;color:#000;font-size:12px;padding:1px 8px;border-radius:8px;margin-top:4px}
+
+.new-note-card{border:3px dashed #000;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;color:#000;font-size:16px;background:#fff}
+.new-note-card:active{background:#eee}
+.new-note-card .plus{font-size:44px;line-height:1;margin-bottom:6px;font-weight:300}
+.new-note-card .label{font-size:16px;font-weight:600}
+
+#empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#000;padding:40px}
+#empty-state .icon{width:60px;height:76px;border:3px solid #000;border-radius:5px;color:transparent;font-size:0;margin-bottom:18px}
+#empty-state .text{font-size:16px;text-align:center}
+
+/* Context menu: white, thick black outline; items separated by black lines. */
+.context-menu{position:fixed;background:#fff;border:3px solid #000;border-radius:10px;z-index:200;min-width:180px;overflow:hidden}
+.context-menu .item{padding:12px 16px;font-size:16px;cursor:pointer;border-bottom:2px solid #000}
+.context-menu .item:last-child{border-bottom:none}
+.context-menu .item:active{background:#000;color:#fff}
+.context-menu .item.danger{font-weight:700}
+
+.storage-body{margin-bottom:14px}
+.storage-usage{font-size:15px;color:#000;margin-bottom:14px}
+.storage-current-label{font-size:14px;color:#333}
+.storage-current-path{font-size:14px;color:#000;word-break:break-all;margin:4px 0 16px;padding:10px;background:#fff;border:2px solid #000;border-radius:8px}
+.storage-action{display:block;width:100%;margin-bottom:10px;min-height:52px;font-size:16px}

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+<title>Kalamos</title>
+<link rel="stylesheet" href="css/common.css">
+<link rel="stylesheet" href="css/library.css">
+<link rel="stylesheet" href="css/editor.css">
+</head>
+<body>
+<!-- Single-page app: library + editor are two views in one WebView, toggled by app.js (no page
+     reload / WebView swap). Only one is visible at a time. -->
+<div id="library-view">
+  <div id="header">
+    <h1>Kalamos</h1>
+    <button id="btn-settings" class="btn" title="Settings">&#9881;</button>
+  </div>
+  <div id="folder-bar"></div>
+  <div id="grid"></div>
+  <div id="pagination"></div>
+  <div id="empty-state" style="display:none">
+    <div class="icon">&#128196;</div>
+    <div class="text">No notes yet — tap + to create</div>
+  </div>
+</div>
+
+<div id="editor-view" style="display:none">
+  <div id="canvas-area">
+    <div id="paper">
+      <div id="eraser-cursor"></div>
+    </div>
+    <!-- Web-defined animation placed on the page. Native samples this region + fast-refreshes it onto
+         the e-ink surface; the animation itself is pure web (SVG + CSS), so it's fully generic. -->
+    <div id="anim-layer" style="display:none">
+      <!-- A bird pedalling a bike. The web layer (Bike in editor-controller.js) drives it via rAF:
+           wheels + crank rotate, and the legs are solved with 2-bone IK so the feet follow the pedals.
+           Native just samples this region — the animation is entirely web-controlled (generic). -->
+      <svg id="bike-svg" viewBox="0 0 240 200" class="anim-svg" preserveAspectRatio="xMidYMid meet">
+        <line x1="14" y1="188" x2="226" y2="188" stroke="#9A9A9A" stroke-width="3" stroke-linecap="round"/>
+        <g id="wheel-back">
+          <circle cx="62" cy="148" r="34" fill="none" stroke="#141414" stroke-width="5"/>
+          <circle cx="62" cy="148" r="4.5" fill="#141414"/>
+        </g>
+        <g id="wheel-front">
+          <circle cx="184" cy="148" r="34" fill="none" stroke="#141414" stroke-width="5"/>
+          <circle cx="184" cy="148" r="4.5" fill="#141414"/>
+        </g>
+        <g stroke="#1A52C8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M62,148 L123,150 L184,148"/>
+          <path d="M123,150 L104,92"/>
+          <path d="M62,148 L104,92"/>
+          <path d="M104,92 L168,96"/>
+          <path d="M168,96 L184,148"/>
+          <path d="M123,150 L168,96"/>
+        </g>
+        <rect x="92" y="87" width="27" height="7" rx="3" fill="#141414"/>
+        <path d="M168,96 L176,82 L187,82" stroke="#141414" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path id="leg-far" class="leg" d="M116,100 L120,128 L127,151" stroke="#B86410" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <g id="crank">
+          <line x1="108" y1="150" x2="138" y2="150" stroke="#141414" stroke-width="5" stroke-linecap="round"/>
+          <rect x="102" y="146" width="12" height="8" rx="2" fill="#141414"/>
+          <rect x="132" y="146" width="12" height="8" rx="2" fill="#141414"/>
+        </g>
+        <g id="bird">
+          <path d="M78,80 L58,68 L64,82 L56,92 L74,88 Z" fill="#1A52C8"/>
+          <ellipse cx="100" cy="82" rx="25" ry="18" fill="#2A66E0"/>
+          <path d="M86,80 Q104,69 118,85 Q102,91 86,80 Z" fill="#1A52C8"/>
+          <circle cx="129" cy="65" r="13" fill="#2A66E0"/>
+          <circle cx="133" cy="62" r="2.4" fill="#0A1020"/>
+          <path d="M140,61 L155,66 L140,71 Z" fill="#F0A018"/>
+        </g>
+        <path id="leg-near" class="leg" d="M116,100 L120,128 L127,151" stroke="#E08418" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+  </div>
+  <!-- Collapsible floating menu docked to the left edge. Collapsed = just the ☰ handle (paper is
+       full-screen); tapping it opens the vertical tool column. Icons + a small label each. -->
+  <div id="menu" class="collapsed">
+    <button class="menu-btn handle" id="btn-menu" title="Menu"><span class="ic">&#9776;</span></button>
+    <div id="menu-tools">
+      <button class="menu-btn" id="btn-library"><span class="ic">&#8592;</span><span class="lb">Back</span></button>
+      <button class="menu-btn active" id="btn-pen" data-tool="pen"><span class="ic">&#9998;</span><span class="lb">Pen</span></button>
+      <button class="menu-btn" id="btn-felt" data-tool="pen"><span class="ic">&#10002;</span><span class="lb">Felt</span></button>
+      <button class="menu-btn" id="btn-selection" data-tool="pen"><span class="ic">&#11034;</span><span class="lb">Select</span></button>
+      <button class="menu-btn" id="btn-eraser" data-tool="eraser"><span class="ic">&#9003;</span><span class="lb">Erase</span></button>
+      <button class="menu-btn" id="btn-color"><span class="ic" id="color-dot" style="background:#000000"></span><span class="lb">Color</span></button>
+      <!-- Expanding ink-colour palette (toggled by the Colour button). Vivid set tuned for the
+           Kaleido 3 colour-filter array — saturated, medium-dark hues read most vividly; pastels wash out. -->
+      <div id="color-grid" style="display:none">
+        <button class="pop-swatch" data-color="#000000" style="background:#000000" title="Black"></button>
+        <button class="pop-swatch" data-color="#808080" style="background:#808080" title="Grey"></button>
+        <button class="pop-swatch" data-color="#8A4A18" style="background:#8A4A18" title="Brown"></button>
+        <button class="pop-swatch" data-color="#E01010" style="background:#E01010" title="Red"></button>
+        <button class="pop-swatch" data-color="#E8600C" style="background:#E8600C" title="Orange"></button>
+        <button class="pop-swatch" data-color="#D4A000" style="background:#D4A000" title="Amber"></button>
+        <button class="pop-swatch" data-color="#188C1C" style="background:#188C1C" title="Green"></button>
+        <button class="pop-swatch" data-color="#0C8C84" style="background:#0C8C84" title="Teal"></button>
+        <button class="pop-swatch" data-color="#1838D8" style="background:#1838D8" title="Blue"></button>
+        <button class="pop-swatch" data-color="#4622C0" style="background:#4622C0" title="Indigo"></button>
+        <button class="pop-swatch" data-color="#9418B0" style="background:#9418B0" title="Purple"></button>
+        <button class="pop-swatch" data-color="#D81884" style="background:#D81884" title="Pink"></button>
+      </div>
+      <button class="menu-btn" id="btn-undo"><span class="ic">&#8634;</span><span class="lb">Undo</span></button>
+      <button class="menu-btn" id="btn-redo"><span class="ic">&#8635;</span><span class="lb">Redo</span></button>
+      <button class="menu-btn" id="btn-prev"><span class="ic">&#9650;</span><span class="lb">Prev</span></button>
+      <span class="menu-page" id="page-num">1/1</span>
+      <button class="menu-btn" id="btn-next"><span class="ic">&#9660;</span><span class="lb">Next</span></button>
+      <button class="menu-btn" id="btn-add"><span class="ic">+</span><span class="lb">Add</span></button>
+      <button class="menu-btn" id="btn-delete"><span class="ic">&#8722;</span><span class="lb">Del</span></button>
+      <select id="template-select">
+        <option value="blank">Blank</option>
+        <option value="ruled">Ruled</option>
+        <option value="grid">Grid</option>
+        <option value="dotted">Dotted</option>
+      </select>
+      <div class="menu-width">
+        <input type="range" id="width-slider" min="1" max="20" value="3" step="1">
+        <span id="width-value">3</span>
+      </div>
+      <button class="menu-btn" id="btn-anim"><span class="ic">&#9829;</span><span class="lb">Anim</span></button>
+      <button class="menu-btn" id="btn-export"><span class="ic">&#8682;</span><span class="lb">Export</span></button>
+      <span id="autosave-status"></span>
+    </div>
+  </div>
+</div>
+
+<script src="js/bridge.js"></script>
+<script src="js/models.js"></script>
+<script src="js/storage-web.js"></script>
+<script src="js/history.js"></script>
+<script src="js/pen-priority.js"></script>
+<script src="js/library-controller.js"></script>
+<script src="js/editor-controller.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

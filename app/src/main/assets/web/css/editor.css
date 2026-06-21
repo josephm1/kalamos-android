@@ -1,0 +1,65 @@
+/* Full-screen paper; the toolbar is a collapsible menu floating over the top-left. */
+#editor-view{position:relative;height:100%;background:#fff}
+
+#canvas-area{position:absolute;inset:0;padding:6px;overflow:hidden;background:#fff;touch-action:none}
+/* touch-action:none — the pen owns this area; without it the browser hijacks an eraser drag as a
+   scroll gesture and fires pointercancel mid-swipe, cutting the erase short after a few moves. */
+#paper{position:absolute;top:6px;left:6px;background:transparent;border:2px solid #000;touch-action:none}
+
+#eraser-cursor{position:absolute;border:2px solid #000;border-radius:50%;pointer-events:none;display:none;z-index:10;transform:translate(-50%,-50%)}
+
+/* Web-defined animation layer (placed on the page, sampled + fast-refreshed by native). Opaque white
+   background so each sampled frame fully replaces the previous one (no web-side ghosting). The
+   animation content + its driving JS are pure web — native just mirrors this region onto the EPD. */
+#anim-layer{position:absolute;width:264px;height:220px;background:#fff;display:flex;align-items:center;justify-content:center;z-index:5;pointer-events:none}
+.anim-svg{width:100%;height:100%}
+/* All motion is CSS (compositor-driven — keeps advancing when the WebView is occluded, unlike rAF). */
+#wheel-back,#wheel-front,#crank,#bird,.leg{transform-box:view-box}
+#wheel-back{transform-origin:62px 148px;animation:spin .9s linear infinite}
+#wheel-front{transform-origin:184px 148px;animation:spin .9s linear infinite}
+#crank{transform-origin:123px 150px;animation:spin 1.3s linear infinite}
+#bird{transform-origin:100px 82px;animation:bob 1.3s ease-in-out infinite}
+.leg{transform-origin:116px 100px}
+#leg-near{animation:pedal 1.3s linear infinite}
+#leg-far{animation:pedal 1.3s linear infinite;animation-delay:-.65s}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pedal{0%,100%{transform:rotate(-15deg)}50%{transform:rotate(15deg)}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+
+/* Floating menu, docked to the left edge. Collapsed = just the handle. */
+#menu{position:absolute;left:10px;top:10px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;z-index:20;user-select:none}
+/* Packed column: NO gaps/padding — cells sit flush, separated only by solid black lines, inside a
+   single rounded black outline. overflow:hidden clips the cell corners to the radius. */
+#menu-tools{display:flex;flex-direction:column;align-items:stretch;background:#fff;border:3px solid #000;border-radius:11px;overflow:hidden}
+#menu.collapsed #menu-tools{display:none}
+#menu-tools > *{border-bottom:2px solid #000}        /* the separator line between every cell */
+#menu-tools > *:last-child{border-bottom:none}
+
+.menu-btn{width:54px;min-height:42px;background:#fff;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;color:#000;font-weight:600;padding:3px 2px}
+.menu-btn .ic{font-size:19px;line-height:1.05}
+.menu-btn .lb{font-size:9px;line-height:1.05}
+.menu-btn:active,.menu-btn.active{background:#000;color:#fff}
+.menu-btn:disabled{opacity:0.25}
+/* Narrow handle so it obscures as little of the page as possible (its own rounded outline). */
+.menu-btn.handle{width:40px;min-width:40px;min-height:44px;border:3px solid #000;border-radius:11px}
+.menu-btn.handle .ic{font-size:22px}
+
+.menu-page{width:54px;min-height:32px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;background:#fff}
+#menu-tools #template-select{width:54px;border:0;border-radius:0;font-size:11px;font-weight:600;padding:5px 2px;min-height:36px;background:#fff;text-align:center}
+.menu-width{width:54px;display:flex;flex-direction:column;align-items:center;gap:0;padding:4px 0;background:#fff}
+#width-slider{width:46px;accent-color:#000}
+#width-value{font-size:12px;font-weight:700}
+#autosave-status{font-size:9px;color:#000;text-align:center;width:54px;min-height:0;background:#fff}
+#autosave-status:empty{display:none}
+
+/* Colour: the menu cell shows the current ink as a swatch; tapping opens the pop-out picker. */
+#color-dot{width:22px;height:22px;border:2px solid #000;border-radius:3px;display:block}
+.menu-btn.active #color-dot{border-color:#fff}
+
+/* Expanding colour palette inside the menu (toggled by the Colour button). 2-col grid of vivid
+   swatches; colour set tuned for the Kaleido 3 CFA (saturated, medium-dark hues read most vividly). */
+#color-grid{width:54px;display:grid;grid-template-columns:1fr 1fr;background:#fff}
+.pop-swatch{height:26px;border:0;border-right:2px solid #000;border-bottom:2px solid #000;padding:0;position:relative}
+#color-grid .pop-swatch:nth-child(2n){border-right:none}
+#color-grid .pop-swatch:nth-last-child(-n+2){border-bottom:none}
+.pop-swatch.active::after{content:'';position:absolute;inset:5px;border:2px solid #fff;box-shadow:0 0 0 2px #000}

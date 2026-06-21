@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Assigned programmatically to the cached WebViews (editor + library), which are added at
+         runtime rather than inflated, so findViewById(R.id.webView) still works. -->
+    <item name="webView" type="id" />
+</resources>
