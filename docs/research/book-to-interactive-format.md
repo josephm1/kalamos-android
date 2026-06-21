@@ -589,18 +589,22 @@ defeats it.
 - Apply the same byte-threshold defer idea as `HEAVY_PAGE_BYTES`: on a block-heavy page render the
   cheap text first and hydrate interactive/image blocks a beat later (§11.6).
 
-### 11.3 The new core: a sliding window + eviction (LRU)
-- **Gap today:** once a page's `strokes` are parsed they stay in memory for the whole session.
-  Fine for a ~30-page notebook; **unbounded for a 300-page book** — open enough pages and memory
-  climbs until the OS kills the app.
-- **Fix:** keep only a window of pages resident around `currentPageIndex` (e.g. ±2, wider than the
-  the prefetch span). On page change, **evict** pages outside the window by setting `strokes`/`blocks`
-  back to `null` and releasing their image bitmaps (§11.4). Reload is already cheap — it's just the
-  existing lazy path firing again.
-- **Safety:** evict only *after* flushing. A `_dirty` page is saved via `saveNotebookDirty` before
-  it is nulled, reusing the existing dirty-tracking so eviction can never drop unsaved ink.
-- **Result:** resident memory is bounded by the window, **independent of book length.** Expose a
-  `WINDOW_PAGES` constant beside the existing tunables (`editor-controller.js:17-20`).
+### 11.3 The sliding window + eviction (implemented for strokes)
+- **The gap it closes:** a page's `strokes` stay resident once parsed, so flipping through a long
+  notebook grew memory unbounded until the OS killed the app.
+- **Implemented:** `evictDistantPages` (`editor-controller.js`) keeps only a resident window —
+  `RESIDENT_AHEAD = PREFETCH_AHEAD + 2` ahead and `RESIDENT_BEHIND = PREFETCH_BEHIND + 2` behind
+  `currentPageIndex` (a buffer past the prefetch span so it never drops a page prefetch just loaded)
+  — and sets every other page's `strokes` back to `null`. Reload is the existing lazy path.
+- **Gated harder than prefetch:** scheduled after a long `EVICT_IDLE_MS = 3000` settle, then run
+  only inside a **true** `requestIdleCallback` slice with **no timeout** (never forced) that has at
+  least `EVICT_MIN_IDLE_MS` left, and it yields whenever `appBusy()` is true. Dropping references can
+  trigger GC, so it's deliberately confined to genuine idle.
+- **Safety:** it **never evicts a `_dirty` page** — autosave (`saveNotebookDirty`) clears `_dirty`
+  first and a later pass drops it — so eviction can't lose unsaved ink and never performs a save.
+- **Result:** resident memory is bounded by the window, **independent of book length.**
+- **Still to do when content lands:** also null `p.blocks` and release the page's cached image
+  bitmaps in the same loop (marked with a TODO comment at the eviction site) — see §11.4.
 
 ### 11.4 Images — the heaviest item, its own discipline
 Images don't exist today and are the dominant risk: a decoded bitmap costs `W × H × bytes-per-px`
@@ -633,14 +637,16 @@ panel is only ~1872 px wide.
 - Even a single heavy page (large image + many strokes) renders **progressively**, never as one
   blocking load: template first → strokes deferred by `STROKE_LOAD_DELAY_MS` → image blocks
   hydrated after, each composited region-by-region.
-- Keep the knobs in one place next to today's constants (`editor-controller.js:17-20`):
-  `WINDOW_PAGES` (resident window), the image-cache byte budget, and a block heavy-threshold
-  analogous to `HEAVY_PAGE_BYTES`. They are the dials to tune as real books are tested on-device.
+- Keep the knobs in one place next to today's constants (`editor-controller.js:17-22`): the
+  prefetch depth (`PREFETCH_AHEAD`/`PREFETCH_BEHIND`) and resident window
+  (`RESIDENT_AHEAD`/`RESIDENT_BEHIND`, `EVICT_IDLE_MS`) already live there; add the image-cache byte
+  budget and a block heavy-threshold analogous to `HEAVY_PAGE_BYTES`. These are the dials to tune as
+  real books are tested on-device.
 
 ### 11.7 Summary
-Memory safety comes from three layers, two of which already exist: **(1)** never load the whole
-notebook (meta-only open + lazy per-page — *already shipped*); **(2)** bound the resident set with
-a sliding window + eviction (*new*, but built on the existing lazy/dirty machinery); **(3)** treat
-images as downsampled, separately-stored, LRU-cached, recycled bitmaps (*new*, the single biggest
-lever). The importer pre-conditions everything off-device so the Bigme only ever handles small,
+Memory safety comes from three layers: **(1)** never load the whole notebook (meta-only open +
+lazy per-page — *shipped*); **(2)** bound the resident set with a sliding window + idle-gated
+eviction (*shipped for strokes*; blocks/bitmaps hook into the same loop when content lands);
+**(3)** treat images as downsampled, separately-stored, LRU-cached, recycled bitmaps (*future*, the
+single biggest lever). The importer pre-conditions everything off-device so the Bigme only ever handles small,
 bounded, page-sized pieces.

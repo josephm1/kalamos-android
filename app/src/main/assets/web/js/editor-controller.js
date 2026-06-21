@@ -20,6 +20,10 @@ const HEAVY_PAGE_BYTES = 18000    // raw page JSON above this defers strokes (te
 const PREFETCH_IDLE_MS = 600      // idle after a page settles before warming neighbouring pages
 const PREFETCH_AHEAD = 4          // pages to prefetch ahead of the current page (forward flips dominate)
 const PREFETCH_BEHIND = 2         // pages to prefetch behind; both only run while the main thread is idle
+const EVICT_IDLE_MS = 3000        // settle time before eviction is even considered — far lazier than prefetch
+const RESIDENT_AHEAD = PREFETCH_AHEAD + 2    // keep a buffer beyond the prefetch span so eviction never
+const RESIDENT_BEHIND = PREFETCH_BEHIND + 2  // drops a page prefetch just loaded (avoids load/evict thrash)
+const EVICT_MIN_IDLE_MS = 8       // only evict inside a real idle slice with at least this much time left
 
 // CSS-pixel paper bounds cached when ink is attached (set by attachInk).
 // Used by stroke callbacks to convert daemon physical-pixel coords → canvas coords.
@@ -291,7 +295,8 @@ function syncNativePage(refreshRect) {
     out.s.push(so)
   }
   Bridge.renderInk(JSON.stringify(out))
-  schedulePrefetch()   // page is up — warm the ±1 neighbours once we settle (instant flips)
+  schedulePrefetch()   // page is up — warm the neighbouring pages once we settle (instant flips)
+  scheduleEvict()      // …and, much more lazily, drop pages that have fallen outside the window
 }
 
 // Deferred-stroke timer for the adaptive template-first path (heavy pages only).
@@ -341,6 +346,40 @@ function prefetchNeighbours() {
     }
     whenIdle(step)            // next page only once the main thread is idle again
   })()
+}
+
+// Memory eviction: a page's strokes stay resident once parsed, so flipping through a long notebook
+// (and, later, a converted book of hundreds of pages) grows memory until the OS kills the app. Drop
+// the strokes of pages OUTSIDE a resident window around the current page back to null — they reload
+// instantly via the lazy path (ensurePageLoaded). This is gated EVEN HARDER than prefetch: it waits a
+// long settle (EVICT_IDLE_MS), then runs only inside a TRUE idle slice (requestIdleCallback with NO
+// timeout, so it's never forced) that actually has time left, and yields whenever the app is busy. It
+// NEVER evicts a dirty page — autosave clears _dirty first, then a later pass drops it — so eviction
+// can't lose unsaved ink and never has to perform a save itself.
+let _evictTimer = null
+function scheduleEvict() {
+  if (_evictTimer) clearTimeout(_evictTimer)
+  _evictTimer = setTimeout(function() {
+    if (window.requestIdleCallback) window.requestIdleCallback(evictDistantPages)   // no timeout: pure idle only
+    else evictDistantPages(null)
+  }, EVICT_IDLE_MS)
+}
+
+function evictDistantPages(deadline) {
+  if (!notebook) return
+  // Defer if the app is working, or the idle slice is too short to be safe — retry later, never force it.
+  if (appBusy() || (deadline && deadline.timeRemaining() < EVICT_MIN_IDLE_MS)) { scheduleEvict(); return }
+  const lo = currentPageIndex - RESIDENT_BEHIND
+  const hi = currentPageIndex + RESIDENT_AHEAD
+  const pages = notebook.pages
+  for (let idx = 0; idx < pages.length; idx++) {
+    if (idx >= lo && idx <= hi) continue            // inside the resident window → keep
+    const p = pages[idx]
+    if (p && p.strokes !== null && !p._dirty) {
+      p.strokes = null                              // drop parsed strokes; reload is the lazy path
+      // (When block/image content lands: also null p.blocks and release its cached bitmaps here.)
+    }
+  }
 }
 
 // The floating menu's bounds at its last snapshot (surface px), so a collapse/expand can refresh
