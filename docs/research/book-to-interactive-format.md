@@ -181,3 +181,298 @@ notebooks.
   **content/text layer, MCQ state, AI gating, and an off-device conversion tool.**
 - This feature should be built **on top of a cleaned web/native boundary** ("decouple the
   web layer"), turning interactive book content into a web-only workstream.
+- **Execution-ready detail** for the three load-bearing pieces is in the appendices:
+  §7 the concrete block-JSON schema (with a worked example page), §8 a prototype-level wiring
+  of Phase 2 (reading mode + static blocks) into the existing layer toggling, and §9 an
+  evaluation of the off-device conversion tool.
+
+---
+
+## 7. The block-JSON schema (concrete)
+
+This is the on-device **runtime/storage** format — the compile *target* of any MDX-style
+authoring (§9), deliberately not JSX. The device only ever parses this declarative JSON; it
+never executes authored components.
+
+### 7.1 Page = a backward-compatible superset of today's model
+Today a page is `{ pageId, template, strokes[] }` (`models.js:17-23`). Add one optional field:
+
+```
+page = { pageId, template, blocks[], strokes[] }
+```
+
+- `blocks[]` is the authored content layer, rendered **under** the user's ink.
+- `strokes[]` stays exactly as-is — the user's handwriting **over** everything.
+- **Backward-compatible both ways:** an existing notebook simply has no `blocks` (and
+  `validateNotebook`, `models.js:56-68`, already tolerates missing fields — add
+  `if (!p.blocks) p.blocks = []` there). Drop `blocks` from any example below and you have a
+  byte-for-byte current page.
+
+### 7.2 Coordinate space (the one rule everything obeys)
+Every block `rect` is in **CSS px relative to the paper top-left** — the *same* space strokes
+are stored in. Strokes are saved as `x = surfaceX/dpr - inkCssBounds.left`
+(`editor-controller.js:180`), and re-projected to the native surface as
+`(x + inkCssBounds.left) * dpr` (`syncNativePage:282`). Because blocks share that origin, a
+block rect converts to the surface-px rectangles that `startWebAnim` (`:931`),
+`setWritingExclusion` (`:341`), and the snapshot calls all expect via the **one transform that
+already exists** — no new coordinate system is introduced.
+
+### 7.3 Common block envelope
+```json
+{ "id": "b-xxxx", "type": "text|image|mcq|drawing|animation|ai",
+  "rect": { "x": 0, "y": 0, "w": 0, "h": 0 },
+  "z": 0 }
+```
+- `id` — stable id (`b-` + uid, same generator as strokes/pages, `models.js:1`).
+- `type` — discriminator selecting the payload below.
+- `rect` — CSS px from paper top-left (§7.2). `w`/`h` let the renderer lay out without measuring.
+- `z` — optional stacking order among blocks (all blocks are still beneath ink).
+
+### 7.4 Per-type payload (field by field)
+
+**`text`** — formatted prose.
+```json
+{ "type":"text", "format":"md", "md":"## Photosynthesis\nPlants convert *light* into sugar.",
+  "style": { "align":"left", "size":"body" } }
+```
+- `format` — `"md"` (inline Markdown; `"plain"` allowed). `md` — the source string.
+- `style` — optional presentational hints (`size: title|body|caption`, `align`). No arbitrary CSS.
+
+**`image`** — a raster/vector asset.
+```json
+{ "type":"image", "src":"assets/leaf.png", "fit":"contain", "alt":"A leaf cross-section" }
+```
+- `src` — path **relative to the notebook dir** (`getNotebookPath`, `StorageManager.kt:315`), so
+  the importer can drop assets beside `pages/`. `fit` — `contain|cover|fill`. `alt` — accessibility.
+
+**`mcq`** — multiple-choice question (state is mutable + persisted).
+```json
+{ "type":"mcq", "prompt":"Which organelle performs photosynthesis?",
+  "choices":[ {"id":"a","md":"Mitochondrion"}, {"id":"b","md":"Chloroplast"},
+              {"id":"c","md":"Ribosome"} ],
+  "answer":["b"], "multi":false, "explain":"Chloroplasts contain chlorophyll.",
+  "state": { "selected":[], "revealed":false } }
+```
+- `prompt` / `choices[]` (each `{id, md}`) — the question + options.
+- `answer` — array of correct choice ids (array form covers both single- and multi-select).
+- `multi` — allow multiple selections. `explain` — shown after reveal (optional).
+- `state` — the **only mutable part**: `selected[]` (chosen ids) + `revealed` (graded yet?).
+  Saved in the page file alongside strokes, so progress survives close/reopen.
+
+**`drawing`** — a bounded free-ink region.
+```json
+{ "type":"drawing", "rect":{"x":40,"y":520,"w":680,"h":300}, "label":"Sketch the reaction" }
+```
+- No payload beyond `rect` + optional `label`: the *content* is the user's strokes that fall
+  inside `rect`. `rect` maps directly to `setWritingExclusion` (`InkManager.kt:250`) — invert the
+  exclusion so the daemon writes **only** inside the box (drawing mode), or excludes it (so the
+  box is protected) depending on the active tool. Strokes still live in the page's `strokes[]`;
+  the region is the spatial association, so no stroke-model change is needed.
+
+**`animation`** — a web-defined motion sampled onto the panel.
+```json
+{ "type":"animation", "rect":{"x":120,"y":160,"w":280,"h":220},
+  "kind":"bike", "loop":true, "autostart":false }
+```
+- `kind` — a built-in animation id today (`"bike"` is the shipped one, `editor-controller.js`
+  `Bike`); later a small declarative spec. `loop`/`autostart` — playback policy.
+- Runtime = the **existing** `startWebAnim`/`captureAnimFrame` path verbatim — `rect`→surface px
+  is the region argument; nothing new on the native side.
+
+**`ai`** — an AI-backed block (local or cloud/LAN), gated.
+```json
+{ "type":"ai", "prompt":"Summarise the student's answer above in one sentence.",
+  "inputs":["b-mcq1","strokes"], "route":"auto",
+  "state": { "result":"", "ranAt":null } }
+```
+- `prompt` — the instruction. `inputs[]` — refs to other block ids and/or `"strokes"`
+  (the page's handwriting, optionally OCR'd) that feed the prompt.
+- `route` — `auto|local|cloud`; the **single AI gate** (`battery-optimization.md` §4.2/4.5)
+  decides and enforces foreground + explicit-action + debounced network.
+- `state.result` / `ranAt` — cached output so it isn't re-run (battery + privacy). Never
+  auto-triggers.
+
+### 7.5 Worked example — one page mixing all four content kinds + handwriting
+```json
+{
+  "pageId": "p-7f3a-9c12-04bd",
+  "template": { "type": "ruled", "spacing": 32, "margin": 72 },
+  "blocks": [
+    { "id": "b-title", "type": "text", "rect": { "x": 72, "y": 40, "w": 900, "h": 120 },
+      "format": "md", "md": "# Chapter 3 — Photosynthesis\nHow plants make food from light." },
+
+    { "id": "b-diagram", "type": "animation", "rect": { "x": 360, "y": 180, "w": 280, "h": 220 },
+      "kind": "bike", "loop": true, "autostart": false },
+
+    { "id": "b-q1", "type": "mcq", "rect": { "x": 72, "y": 430, "w": 860, "h": 240 },
+      "prompt": "Where does photosynthesis occur?",
+      "choices": [ { "id": "a", "md": "Chloroplast" }, { "id": "b", "md": "Nucleus" },
+                   { "id": "c", "md": "Cell wall" } ],
+      "answer": [ "a" ], "multi": false,
+      "explain": "Chloroplasts hold the chlorophyll that captures light.",
+      "state": { "selected": [], "revealed": false } },
+
+    { "id": "b-sketch", "type": "drawing", "rect": { "x": 72, "y": 700, "w": 860, "h": 300 },
+      "label": "Draw and label a chloroplast" }
+  ],
+  "strokes": [
+    { "id": "s-2a1b-77c0", "tool": "pen", "color": "#111111", "width": 3,
+      "points": [ { "x": 120, "y": 760 }, { "x": 142, "y": 775 }, { "x": 168, "y": 769 } ] }
+  ]
+}
+```
+The single `strokes[]` entry is a handwritten line the user drew inside the `b-sketch` region —
+identical to today's stroke model (`models.js:46-54`), living over the authored blocks.
+
+### 7.6 Storage mapping (reuse, don't reinvent)
+- Blocks ride in the **page file** — `pages/<pageId>.json` — written by `savePageRaw`
+  (`StorageManager.kt:205`). Today that file is a bare strokes array; for content pages it becomes
+  `{ "blocks":[...], "strokes":[...] }`. `reconstructRaw` (`:176-202`) splices the page file in
+  raw, so it needs a small tweak: detect array (legacy → strokes-only) vs object (blocks+strokes)
+  and emit accordingly — still **no native parse of stroke data**, preserving cold-open speed.
+- If blocks ever get large, split to a sibling `blocks/<pageId>.json` and keep `pages/` as pure
+  strokes (zero change to the hot stroke path). Add a per-page `hasBlocks` hint in `meta.json`
+  (`metaJson`, `:102-112`) so the loader knows whether to fetch blocks at all.
+- All writes go through `atomicWrite` (`:117-132`) — crash/SD-pull safety for free.
+
+---
+
+## 8. Phase 2 prototype: reading mode + static blocks
+
+**Goal of this phase:** render `text`/`image`/`mcq` blocks and let the user *read and answer* —
+no writing-over-content yet (that's Phase 3). This is the smallest end-to-end slice and it leans
+entirely on the existing layer-toggle machinery.
+
+### 8.1 The new third layer mode
+Today there are exactly two native modes (`InkManager.kt`):
+
+```kotlin
+fun enterEditor()  { inkSurfaceView.visibility = VISIBLE; webView.setBackgroundColor(TRANSPARENT) } // :51
+fun enterLibrary() { inkSurfaceView.visibility = GONE;    webView.setBackgroundColor(WHITE) }       // :60
+```
+
+Add a third that is *mechanically* like `enterLibrary` (ink off, WebView is the live visible
+layer) but **semantically a notebook page** — we stay in `editor-view`, not the grid:
+
+```kotlin
+fun enterReadingMode() {                                   // new in InkManager
+    inkSurfaceView.visibility = View.GONE
+    webView.setBackgroundColor(Color.WHITE)
+}
+```
+
+Plumb it exactly like the existing pair: `AndroidBridge.enterReading()` →
+`inkManager?.enterReadingMode()` (mirror `AndroidBridge.kt:217-224`), the `@JavascriptInterface`
+shim in `BridgeRouter.kt` (mirror `:42-43`), and a `Bridge.enterReading()` wrapper in
+`bridge.js` (mirror `:201-215`). Because the ink surface is GONE, the WebView receives touches
+directly — so block DOM is fully interactive with no daemon contention.
+
+### 8.2 DOM render of blocks
+Add a `#content-layer` div inside `editor-view` (sibling of the existing `paper`/`#anim-layer`),
+absolutely positioned over the paper. A small `renderBlocks(page)` walks `page.blocks` and emits
+plain DOM — **no React**:
+- `text` → a positioned div; `md` run through a tiny Markdown→HTML pass (a ~30-line subset:
+  headings, bold/italic, lists — enough for prose). 
+- `image` → an `<img>` with `src` resolved against the notebook dir.
+- `mcq` → prompt + a `<button>` per choice + a reveal control.
+- `drawing`/`animation` → just a positioned placeholder box in Phase 2 (filled in Phase 3/4).
+
+Each block element is positioned from its `rect` (CSS px, same origin as `paper`, §7.2), so it
+lines up with where ink will later land.
+
+### 8.3 Mode-toggle wiring (exact transitions)
+The router lives in `app.js`; today `showEditor` always does ink editor + attach:
+
+```js
+showEditor(notebookId) {            // app.js:17
+  ...; Bridge.enterEditor();        // :21  ink surface ON
+  loadNotebookById(notebookId)      // :23  → attachInkWhenReady()
+}
+```
+
+Phase 2 branches on whether the opened page has blocks:
+
+- **Open a content page** → call `Bridge.enterReading()` (instead of `enterEditor`) and **skip**
+  `attachInk` (no daemon needed for reading); then `renderBlocks(currentPage())`. A plain
+  handwritten page is unchanged — still `enterEditor` + `attachInkWhenReady`.
+- **"Write" toggle** (new toolbar button) → switch to ink: this is precisely the existing
+  resume path — `Bridge.enterEditor()` then `attachInkWhenReady()` (the two calls
+  `onResumeApp` already makes, `app.js:53`). For *writing over* content, the block region is
+  composited onto the now-opaque ink surface by generalising `snapshotToolbarRegion`/`snapshotMenu`
+  (`InkManager.kt:329`,`:356`) into a `snapshotContent(rect)` that bakes the block's WebView pixels
+  onto the surface — **but this live write-over-content is Phase 3**; Phase 2 ships read+interact
+  only, so the "Write" toggle can simply be disabled on pure-content pages until Phase 3.
+- **Back to reading** (or page-turn to another content page) → `detachInk()` (which already saves
+  the thumbnail + flushes + saves, `editor-controller.js:151-155`), then `Bridge.enterReading()`
+  and re-`renderBlocks`. `stopAnim()` is called first if anything is running (same guard
+  `showLibrary` uses, `app.js:27`).
+
+### 8.4 MCQ interaction + partial refresh
+With the WebView live in reading mode, MCQ is ordinary web:
+- A choice `<button>` click handler mutates `block.state.selected`, toggles a `selected` class,
+  and calls `triggerAutosave()` (the same autosave the editor already uses; state persists via
+  `savePageRaw`).
+- On reveal, mark correct/incorrect and show `explain`.
+- **e-ink discipline:** after a state change, refresh **only the MCQ block's rect**, not the
+  screen — the exact partial-refresh pattern the toolbar already uses
+  (`setToolbarSnapshotRegion`/`snapshotToolbarRegion`, `InkManager.kt:329`). This avoids the
+  full-screen flash and the ghosting discussed in `ui-ux-review.md` / `battery-optimization.md`.
+
+### 8.5 What Phase 2 deliberately defers
+Writing/drawing over content (Phase 3, needs `snapshotContent` + scoped `setWritingExclusion`),
+animation blocks (Phase 4, the `startWebAnim` generalisation), and AI blocks (Phase 5, the gate).
+Phase 2 is shippable and reversible on its own: a content page reads and grades; a normal notebook
+is completely untouched.
+
+---
+
+## 9. The conversion tool (off-device importer), evaluated
+
+This is the literal "book → interactive format conversion." It is an **off-device** Node/CLI
+workstream, not device code.
+
+### 9.1 Why off-device
+- Keeps the device runtime lean (no parsers/bundlers shipped to the Bigme) and directly serves the
+  "decouple the web layer" goal — the importer is a standalone tool that emits the **exact on-disk
+  format `StorageManager` already reads**: a notebook dir with `meta.json` +
+  `pages/<pageId>.json` (+ optional `blocks/` and `assets/`). It can run in CI or on a desktop.
+- The device never sees the source format — only validated block JSON (§7), so no untrusted MDX/JS
+  ever executes on the device.
+
+### 9.2 Pipeline
+```
+source → parse → normalise to ONE intermediate AST → map nodes → blocks → paginate → emit + validate
+```
+1. **Parse** the source into a format-specific tree.
+2. **Normalise** to a single intermediate AST (headings, paragraphs, images, lists, plus the
+   interactive node kinds: mcq/drawing/animation/ai).
+3. **Map** AST nodes 1:1 to block types (§7.4).
+4. **Paginate** — the genuinely hard step: flow the linear AST into fixed page rectangles. This is
+   why a **device-independent page geometry** (paper CSS px size + margins, matching the runtime
+   `template`/paper rect) must be a tool input; the tool measures/wraps text to fill each page,
+   then assigns each block a `rect` in the §7.2 coordinate space.
+5. **Emit** the notebook directory and **validate** every page against the §7 schema (reuse the
+   `validateNotebook` invariants, `models.js:56`).
+
+### 9.3 Per-source evaluation
+- **Markdown / MDX-ish — recommended primary path.** Easiest and highest-fidelity for *authored*
+  interactive content. Parse with `remark`/`unified`; use the **MDX compiler for parsing only**
+  (its AST), **not** its React runtime — so authored components `<Mcq>`, `<Drawing>`,
+  `<Animation>`, `<AskAI>` map straight onto block types. This is exactly the doc's verdict (§2,
+  §4.1) realised: *MDX's authoring model without MDX's runtime weight.* Interactivity is explicit
+  in the source, so mapping is deterministic.
+- **ePub — good secondary path.** Already HTML + CSS + semantic chapter/spine structure; parse the
+  spine, convert each chapter's HTML to the intermediate AST. Main work is pagination and
+  reducing/whitelisting CSS to the `style` hints the `text` block allows. Interactive blocks aren't
+  present in stock ePub, so an imported book is read-only prose+images until enriched.
+- **PDF — hardest, lowest priority / best-effort.** PDFs are positional, not semantic: text comes
+  out as placed glyph runs with no reliable reading order or paragraph structure. Needs text
+  extraction (pdf.js / pdfminer) plus heuristics (or OCR for scanned PDFs) to reconstruct flow;
+  embedded images extract as `image` blocks. Treat as a convenience importer with manual cleanup
+  expected, not a clean source.
+
+### 9.4 Authoring interactivity
+MCQ/animation/AI blocks come from **explicit components in the Markdown/MDX source** — the tool
+does not try to infer questions from prose. That keeps conversion deterministic, diff-friendly,
+CI-runnable, and schema-validated, and makes the authoring loop a pure web/content workstream that
+contributors (or AIs) can iterate on without touching Kotlin (§4.5).
