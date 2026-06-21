@@ -568,8 +568,10 @@ The notebook is **never** loaded whole. The existing pipeline:
 - **Template-first for a heavy page.** `HEAVY_PAGE_BYTES = 18000` (`editor-controller.js:19`):
   a page whose raw JSON exceeds it shows the template immediately and defers stroke parse by
   `STROKE_LOAD_DELAY_MS = 220` (`syncNativePage:260-273`).
-- **±1 prefetch only.** `prefetchNeighbours` (`:303-320`) warms just the two neighbouring pages on
-  `PREFETCH_IDLE_MS = 600` idle — never the book.
+- **Bounded, idle-gated prefetch.** `prefetchNeighbours` warms only `PREFETCH_AHEAD = 4` pages
+  ahead + `PREFETCH_BEHIND = 2` behind (forward-weighted), each parsed inside `requestIdleCallback`
+  and skipped while the app is busy (`appBusy()` — writing/animating/saving/pending load) — never
+  the whole book.
 - **Per-page files + raw splice.** `pages/<pageId>.json` per page; `reconstructRaw`
   (`StorageManager.kt:176`) splices stroke arrays with **no native parse**.
 - **Incremental dirty save.** `saveNotebookDirty` (`storage-web.js:65`) writes only `_dirty`,
@@ -592,7 +594,7 @@ defeats it.
   Fine for a ~30-page notebook; **unbounded for a 300-page book** — open enough pages and memory
   climbs until the OS kills the app.
 - **Fix:** keep only a window of pages resident around `currentPageIndex` (e.g. ±2, wider than the
-  ±1 prefetch). On page change, **evict** pages outside the window by setting `strokes`/`blocks`
+  the prefetch span). On page change, **evict** pages outside the window by setting `strokes`/`blocks`
   back to `null` and releasing their image bitmaps (§11.4). Reload is already cheap — it's just the
   existing lazy path firing again.
 - **Safety:** evict only *after* flushing. A `_dirty` page is saved via `saveNotebookDirty` before

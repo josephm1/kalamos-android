@@ -17,7 +17,9 @@ let eraseRefreshTimer = null  // throttle timer for the live erase refresh durin
 const ERASE_REFRESH_MS = 90   // min gap between live erase refreshes (keeps e-ink GU16 from piling up)
 const STROKE_LOAD_DELAY_MS = 220  // delay after the template shows before loading+rendering strokes
 const HEAVY_PAGE_BYTES = 18000    // raw page JSON above this defers strokes (template-first); below renders now
-const PREFETCH_IDLE_MS = 600      // idle after a page settles before warming the ±1 neighbouring pages
+const PREFETCH_IDLE_MS = 600      // idle after a page settles before warming neighbouring pages
+const PREFETCH_AHEAD = 4          // pages to prefetch ahead of the current page (forward flips dominate)
+const PREFETCH_BEHIND = 2         // pages to prefetch behind; both only run while the main thread is idle
 
 // CSS-pixel paper bounds cached when ink is attached (set by attachInk).
 // Used by stroke callbacks to convert daemon physical-pixel coords → canvas coords.
@@ -296,26 +298,48 @@ function syncNativePage(refreshRect) {
 let _strokeLoadTimer = null
 
 // Predictive prefetch (McMaster-Carr's hover-prefetch idea): once you settle on a page and aren't
-// navigating, quietly parse the ±1 neighbouring pages' strokes into memory. You almost always flip
-// sequentially, so the next/prev page is then INSTANT (already parsed, no template-first defer). Only
-// the two neighbours, debounced on idle — never the jank of parsing the whole notebook at once.
+// navigating, quietly parse the PREFETCH_AHEAD pages ahead + PREFETCH_BEHIND behind into memory so
+// a sequential flip is INSTANT (already parsed, no template-first defer). Forward-weighted because
+// you almost always flip forward. Each page is parsed only while the main thread is IDLE
+// (requestIdleCallback) and prefetch yields entirely whenever the app is doing real work — writing,
+// animating, saving, or a pending heavy-page load — so it never competes with foreground jobs.
 let _prefetchTimer = null
 function schedulePrefetch() {
   if (_prefetchTimer) clearTimeout(_prefetchTimer)
   _prefetchTimer = setTimeout(prefetchNeighbours, PREFETCH_IDLE_MS)
 }
+
+// True while the app is doing foreground work that prefetch must yield to (so a background parse
+// never steals cycles from the pen, an animation, or a save).
+function appBusy() {
+  return isDrawing || animOn || autosavePending || _strokeLoadTimer !== null
+}
+
+// Run fn when the main thread is idle; fall back to a short timer where requestIdleCallback is absent.
+function whenIdle(fn) {
+  if (window.requestIdleCallback) { window.requestIdleCallback(fn, { timeout: 2000 }); return }
+  setTimeout(fn, 16)
+}
+
 function prefetchNeighbours() {
   if (!notebook) return
-  const targets = [currentPageIndex + 1, currentPageIndex - 1]   // next first (more likely), then prev
+  // Forward-weighted, nearest-first: all the AHEAD pages (most likely next), then the BEHIND ones.
+  const targets = []
+  for (let d = 1; d <= PREFETCH_AHEAD; d++) targets.push(currentPageIndex + d)
+  for (let d = 1; d <= PREFETCH_BEHIND; d++) targets.push(currentPageIndex - d)
+  const base = currentPageIndex
   let i = 0
   ;(function step() {
-    if (!notebook) return
+    if (!notebook || currentPageIndex !== base) return   // navigated away → the new page schedules its own
     if (i >= targets.length) return
+    // Only touch the disk/parser when the processor is free; if a job is running, wait and retry
+    // WITHOUT consuming a target.
+    if (appBusy()) { _prefetchTimer = setTimeout(step, PREFETCH_IDLE_MS); return }
     const idx = targets[i++]
     if (idx >= 0 && idx < notebook.pages.length && notebook.pages[idx].strokes === null) {
       ensurePageLoaded(idx)   // read + parse → ready in memory for an instant flip
     }
-    setTimeout(step, 8)       // yield between pages
+    whenIdle(step)            // next page only once the main thread is idle again
   })()
 }
 
