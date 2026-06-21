@@ -184,8 +184,9 @@ notebooks.
 - **Execution-ready detail** for the three load-bearing pieces is in the appendices:
   §7 the concrete block-JSON schema (with a worked example page), §8 a prototype-level wiring
   of Phase 2 (reading mode + static blocks) into the existing layer toggling, §9 an
-  evaluation of the off-device conversion tool, and §10 the reflow problem (adjustable text
-  size / font) and its consequences for the fixed-rect layout.
+  evaluation of the off-device conversion tool, §10 the reflow problem (adjustable text
+  size / font) and its consequences for the fixed-rect layout, and §11 the lazy/windowed
+  loading & memory model (eviction + image downsampling) for low-powered hardware.
 
 ---
 
@@ -545,3 +546,99 @@ an explicit page property — add `layout: "fixed" | "reflow"` to the page (and 
 - Keep adjustable size/font **off `fixed` interactive pages**, where the spatial
   content↔ink relationship is the whole point; offer re-import (option **b**) if a different size
   is needed there.
+
+---
+
+## 11. Loading & memory model (low-powered hardware)
+
+The Bigme HiBreak is a modest device, and a converted book is far heavier than a handwritten
+notebook — hundreds of pages, large images, dense strokes. **The whole notebook must never be
+loaded at once.** The good news: the app's *handwriting* path already enforces this, so most of
+the answer is "make the content layer obey the discipline that already exists," with two genuinely
+new pieces (eviction and image memory).
+
+### 11.1 What already bounds memory today (inherit this, don't regress it)
+The notebook is **never** loaded whole. The existing pipeline:
+- **Meta-only open.** `loadNotebookById` (`editor-controller.js:77`) loads just `meta.json`
+  (page list + templates, no strokes) via `Storage.loadMeta`/`takeCachedMeta`; `metaToNotebook`
+  (`storage-web.js:17`) builds every page with `strokes: null`.
+- **Lazy per-page strokes.** `page.strokes === null` is the "not loaded" sentinel;
+  `ensurePageLoaded` (`editor-controller.js:101`) reads one page from disk on first show
+  (`loadPageStrokes`, `storage-web.js:97`).
+- **Template-first for a heavy page.** `HEAVY_PAGE_BYTES = 18000` (`editor-controller.js:19`):
+  a page whose raw JSON exceeds it shows the template immediately and defers stroke parse by
+  `STROKE_LOAD_DELAY_MS = 220` (`syncNativePage:260-273`).
+- **±1 prefetch only.** `prefetchNeighbours` (`:303-320`) warms just the two neighbouring pages on
+  `PREFETCH_IDLE_MS = 600` idle — never the book.
+- **Per-page files + raw splice.** `pages/<pageId>.json` per page; `reconstructRaw`
+  (`StorageManager.kt:176`) splices stroke arrays with **no native parse**.
+- **Incremental dirty save.** `saveNotebookDirty` (`storage-web.js:65`) writes only `_dirty`,
+  *loaded* pages + the tiny meta; unloaded pages are skipped so their files are never clobbered.
+
+The content layer must plug into exactly this — anything that loads all blocks/images up front
+defeats it.
+
+### 11.2 Blocks load lazily, exactly like strokes
+- Add a `blocks: null` sentinel mirroring `strokes: null`, and `ensureBlocksLoaded(index)`
+  mirroring `ensurePageLoaded`. Blocks live in the sibling `blocks/<pageId>.json` (§7.6) so the
+  stroke hot path and `reconstructRaw`'s raw-splice stay untouched.
+- Use the `meta.json` `hasBlocks` hint (§7.6) so a plain handwritten page never even issues a
+  blocks read.
+- Apply the same byte-threshold defer idea as `HEAVY_PAGE_BYTES`: on a block-heavy page render the
+  cheap text first and hydrate interactive/image blocks a beat later (§11.6).
+
+### 11.3 The new core: a sliding window + eviction (LRU)
+- **Gap today:** once a page's `strokes` are parsed they stay in memory for the whole session.
+  Fine for a ~30-page notebook; **unbounded for a 300-page book** — open enough pages and memory
+  climbs until the OS kills the app.
+- **Fix:** keep only a window of pages resident around `currentPageIndex` (e.g. ±2, wider than the
+  ±1 prefetch). On page change, **evict** pages outside the window by setting `strokes`/`blocks`
+  back to `null` and releasing their image bitmaps (§11.4). Reload is already cheap — it's just the
+  existing lazy path firing again.
+- **Safety:** evict only *after* flushing. A `_dirty` page is saved via `saveNotebookDirty` before
+  it is nulled, reusing the existing dirty-tracking so eviction can never drop unsaved ink.
+- **Result:** resident memory is bounded by the window, **independent of book length.** Expose a
+  `WINDOW_PAGES` constant beside the existing tunables (`editor-controller.js:17-20`).
+
+### 11.4 Images — the heaviest item, its own discipline
+Images don't exist today and are the dominant risk: a decoded bitmap costs `W × H × bytes-per-px`
+regardless of the (small) compressed file. A 4000×3000 photo is ~48 MB **decoded**, while the
+panel is only ~1872 px wide.
+- **Never inline base64** in the page/block JSON — it bloats the V8 parse and pins the whole image
+  in the model string. Store images as **separate asset files** (`assets/<hash>.<ext>` under the
+  notebook dir, `getNotebookPath`, `StorageManager.kt:315`); the `image` block's `src` (§7.4)
+  already references a relative path.
+- **Decode at display resolution, not source resolution.** Add a native `decodeImage(path,
+  targetW)` using `BitmapFactory` bounds-only decode (`inJustDecodeBounds`) + `inSampleSize` to
+  downsample *on decode*, then composite the result onto the surface region with the existing
+  snapshot/region pattern (`setToolbarSnapshotRegion`, `InkManager.kt:343`) — so a big image is
+  never materialised as a JS data URL or a full-res bitmap.
+- **LRU bitmap cache with a byte budget**, and `recycle()` evicted/offscreen bitmaps — the app
+  already does explicit per-frame `recycle()` in `captureAnimFrame`/the snapshot paths
+  (`InkManager.kt:132`,`:303-379`). Tie bitmap eviction to the §11.3 page window.
+- **e-ink lever:** Kaleido 3 is greyscale / limited-colour, so decode to a reduced config
+  (RGB565, or 8-bit + dither) for a further memory cut with no perceptible loss on this panel.
+
+### 11.5 The importer pre-conditions the data (push work off-device — §9 tie-in)
+- The off-device importer (§9) writes the **per-page files directly** (meta + `pages/` + `blocks/`
+  + `assets/`), so the device opens meta then windows pages — it never receives or builds a
+  monolithic file in memory.
+- The importer **pre-downscales images** to a device max dimension and strips the originals, so the
+  device never even stores oversized assets. Pagination (§9.4) keeps each page's content bounded,
+  which keeps every page file small enough for the windowed loader.
+
+### 11.6 Within-page progressiveness + budgets
+- Even a single heavy page (large image + many strokes) renders **progressively**, never as one
+  blocking load: template first → strokes deferred by `STROKE_LOAD_DELAY_MS` → image blocks
+  hydrated after, each composited region-by-region.
+- Keep the knobs in one place next to today's constants (`editor-controller.js:17-20`):
+  `WINDOW_PAGES` (resident window), the image-cache byte budget, and a block heavy-threshold
+  analogous to `HEAVY_PAGE_BYTES`. They are the dials to tune as real books are tested on-device.
+
+### 11.7 Summary
+Memory safety comes from three layers, two of which already exist: **(1)** never load the whole
+notebook (meta-only open + lazy per-page — *already shipped*); **(2)** bound the resident set with
+a sliding window + eviction (*new*, but built on the existing lazy/dirty machinery); **(3)** treat
+images as downsampled, separately-stored, LRU-cached, recycled bitmaps (*new*, the single biggest
+lever). The importer pre-conditions everything off-device so the Bigme only ever handles small,
+bounded, page-sized pieces.
