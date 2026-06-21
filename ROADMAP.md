@@ -43,6 +43,14 @@ Captured feature + research backlog. Priority tags: **[P1]** soon · **[P2]** no
   current page / total pages while navigating a notebook.
 - **[P2] Nested folder view.** Folders display as a true nested structure that mirrors how
   they're laid out in internal storage / SD card.
+- **[P3] Adjustable reading text size.** When viewing converted book / interactive content, let
+  the reader change the body text size. Because content blocks are pre-paginated into fixed page
+  rects, changing size requires **reflowing** the content (re-wrapping text, re-laying-out blocks
+  across pages) — and reflow has consequences for coordinate-anchored ink. Ties into the
+  book → interactive feature; see `docs/research/book-to-interactive-format.md` §10.
+- **[P3] Adjustable reading font.** Same as above for font family — also triggers reflow of the
+  content layout. Scoped to reflowable prose pages, not fixed-layout interactive pages (see
+  `docs/research/book-to-interactive-format.md` §10).
 
 ## Notebooks & templates
 

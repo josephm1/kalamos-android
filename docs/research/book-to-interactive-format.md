@@ -183,8 +183,9 @@ notebooks.
   web layer"), turning interactive book content into a web-only workstream.
 - **Execution-ready detail** for the three load-bearing pieces is in the appendices:
   §7 the concrete block-JSON schema (with a worked example page), §8 a prototype-level wiring
-  of Phase 2 (reading mode + static blocks) into the existing layer toggling, and §9 an
-  evaluation of the off-device conversion tool.
+  of Phase 2 (reading mode + static blocks) into the existing layer toggling, §9 an
+  evaluation of the off-device conversion tool, and §10 the reflow problem (adjustable text
+  size / font) and its consequences for the fixed-rect layout.
 
 ---
 
@@ -476,3 +477,71 @@ MCQ/animation/AI blocks come from **explicit components in the Markdown/MDX sour
 does not try to infer questions from prose. That keeps conversion deterministic, diff-friendly,
 CI-runnable, and schema-validated, and makes the authoring loop a pure web/content workstream that
 contributors (or AIs) can iterate on without touching Kotlin (§4.5).
+
+---
+
+## 10. Reflow: adjustable text size / font (the fixed-rect tension)
+
+A reader will eventually want to change the **body text size** or **font** — a baseline
+e-reader expectation. Those two settings are added to the roadmap as future features, but they
+collide head-on with two decisions made above, so the schema and pipeline must anticipate them
+now even though the feature ships later.
+
+### 10.1 Why it's hard here (not just "re-wrap the text")
+- **Blocks have fixed rects.** §7.2 pins every block to a `{x,y,w,h}` in page CSS px, and §9.4
+  bakes pagination **off-device** into those fixed rects. Change the font size and a `text`
+  block's content no longer fits its `rect` — it overflows or leaves a gap, page breaks shift,
+  and every block below it is mispositioned. The baked layout is, by construction, size/font
+  specific.
+- **Strokes are anchored to page coordinates, not to content.** This is the deeper problem.
+  Handwriting is stored as flat page-CSS-px point arrays (`onStrokesBatch`, `editor-controller.js:180`)
+  with no link to the block it annotates. If the prose above a margin note reflows downward, the
+  text moves but **the ink does not** — the annotation drifts off the word it belonged to. A
+  `drawing` block's region (§7.4) has the same issue: its `rect` is fixed, so reflowed text
+  collides with or separates from it.
+- **e-ink cost.** A reflow is a full re-layout → a full-screen GU16 refresh (a flash), the exact
+  thing the app's partial-refresh discipline avoids. It's acceptable as an explicit, occasional
+  user action, but it can't be cheap or incremental.
+
+### 10.2 The core decision: fixed-layout vs reflowable are different page kinds
+Trying to make one page model both pixel-anchored *and* reflowable is the trap. Instead, make it
+an explicit page property — add `layout: "fixed" | "reflow"` to the page (and default missing →
+`"fixed"`, preserving §7's backward compatibility):
+
+- **`fixed` pages** — worksheets, textbook pages with diagrams, MCQs, anchored `drawing`
+  regions. The §7 schema **as-is**. Text size/font are *not* adjustable here (or only via a
+  re-import, §10.3c), because the whole value is the precise spatial relationship between
+  content and the user's ink. This is the right default for *interactive* content.
+- **`reflow` pages** — continuous prose (the bulk of an imported ePub/PDF, §9.3). Here text
+  size/font **are** adjustable, but the trade-off is that ink **cannot anchor to coordinates**.
+  Annotations on a reflow page must attach to a **text range or block id + character offset**, so
+  that when the text re-wraps the annotation re-projects to wherever that range now sits. That is
+  a different (richer) annotation model than today's flat stroke arrays — and the reason it's a
+  separate page kind, not a flag on the current one.
+
+### 10.3 Where the reflow actually runs (three options)
+- **(a) On-device reflow.** Needs a real text-layout/pagination engine living in the lean
+  WebView — exactly the runtime weight §2 argued against. Most flexible, heaviest; only the
+  browser's own CSS layout (let a `reflow` page be a normal scrolling/​paginated HTML document
+  rendered by the WebView) makes this viable without shipping a custom engine.
+- **(b) Re-run the off-device paginator.** Keep the device lean: regenerate the page set from the
+  source with new size/font params (§9.2 step 4) and re-sync the notebook. Clean output, but
+  requires the source + the tool, so it's a "re-import," not a live setting.
+- **(c) Logical document + separate pagination layer.** Store the source as one continuous
+  logical document and treat physical pages as a derived pagination artifact. Changing size/font
+  regenerates only the pagination layer (on-device for `reflow` prose via the browser, or
+  off-device for `fixed` interactive layouts) without mutating the authored content. This is the
+  cleanest long-term model and is compatible with both (a) and (b).
+
+### 10.4 Recommendation
+- Ship **`fixed`-layout interactive pages first** (everything in §7–§9 is already this) — they
+  need no reflow and keep ink perfectly anchored.
+- Add `layout` to the page model now (cheap, backward-compatible) so `reflow` prose pages can be
+  introduced later without a format break.
+- When text-size/font adjustment is built, scope it to **`reflow` pages**, render them as
+  ordinary WebView-laid-out HTML (option **a** via the browser's own engine, no custom layout
+  code), and use **range/block-anchored annotations** so handwriting survives re-wrapping. Treat
+  changing size/font as an explicit action with a full refresh — not a live drag.
+- Keep adjustable size/font **off `fixed` interactive pages**, where the spatial
+  content↔ink relationship is the whole point; offer re-import (option **b**) if a different size
+  is needed there.
