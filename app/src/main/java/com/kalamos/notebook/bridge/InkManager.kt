@@ -251,6 +251,10 @@ class InkManager(
         inkSurfaceView.setWritingExclusion(left, top, right, bottom)
     }
 
+    fun setWritingBounds(left: Int, top: Int, right: Int, bottom: Int) {
+        inkSurfaceView.setWritingBounds(left, top, right, bottom)
+    }
+
 
     /** Re-render the whole page on the native surface from the JS model. [json] = page object in
      *  SURFACE px: {"t":templateType,"sp":spacing,"mg":margin,"dpr":dpr,"b":[l,t,r,b],
@@ -378,6 +382,48 @@ class InkManager(
         }
     }
 
+    /** Bake the WebView's #content-layer (the interactive-format article content) for region
+     *  [l,t,r,b] (surface px = the paper rect) onto the ink surface, UNDER the ink. Same software-layer
+     *  capture as the toolbar/menu snapshots. The user then writes over the baked content with the pen. */
+    fun snapshotContent(l: Int, t: Int, r: Int, b: Int) = snapshotContent(l, t, r, b, 0, 0, 0, 0)
+
+    /** Bake the content region [l,t,r,b]; if [rr]>[rl] limit the EPD refresh to [rl,rt,rr,rb] (the
+     *  sticky-note box → partial refresh), else a full refresh. */
+    fun snapshotContent(l: Int, t: Int, r: Int, b: Int, rl: Int, rt: Int, rr: Int, rb: Int) {
+        mainHandler.post {
+            val left = l.coerceAtLeast(0)
+            val top = t.coerceAtLeast(0)
+            val w = (r - left).coerceAtMost(webView.width - left)
+            val h = (b - top).coerceAtMost(webView.height - top)
+            if (w <= 0 || h <= 0) return@post
+            val refresh = if (rr > rl && rb > rt) Rect(rl, rt, rr, rb) else null
+            webView.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+            webView.postDelayed({
+                try {
+                    val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bmp)
+                    canvas.translate(-left.toFloat(), -top.toFloat())   // map the paper region to [0,0]
+                    webView.draw(canvas)
+                    inkSurfaceView.setContentSnapshot(bmp, refresh)     // bitmap paper-sized → drawn at rBounds
+                } catch (e: Exception) {
+                    Log.w(TAG, "snapshotContent failed: ${e.message}")
+                } finally {
+                    webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                }
+            }, CONTENT_SNAPSHOT_DELAY_MS)
+        }
+    }
+
+    /** Suppress the full-screen wake refresh on the next daemon attach (partial sticky-note open). */
+    fun skipNextWake() {
+        mainHandler.post { inkSurfaceView.setSkipNextWake() }
+    }
+
+    /** Drop any baked content (plain notebook / a page with no blocks). */
+    fun clearContent() {
+        mainHandler.post { inkSurfaceView.setContentSnapshot(null) }
+    }
+
     /** Capture the current page off the native ink surface (the accurate, fully-rendered display —
      *  the web canvas is stale because writing only goes to the surface) into a scaled PNG and save
      *  it as the notebook's library thumbnail. Capture is on the main thread (touches the view);
@@ -437,6 +483,9 @@ class InkManager(
         // Settle delay before capturing a targeted toolbar region (a CSS class toggle paints fast;
         // shorter than the 80ms full-strip snapshot so button feedback is snappy).
         private const val TOOLBAR_REGION_DELAY_MS = 48L
+
+        // Longer settle for content: the content layer can include images that must paint before capture.
+        private const val CONTENT_SNAPSHOT_DELAY_MS = 120L
 
         // Pen-up idle before the batched strokes are pushed to the JS model (cheap; non-visual).
         private const val FLUSH_IDLE_MS = 900L

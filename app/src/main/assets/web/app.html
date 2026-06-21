@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="css/common.css">
 <link rel="stylesheet" href="css/library.css">
 <link rel="stylesheet" href="css/editor.css">
+<link rel="stylesheet" href="css/content.css">
 </head>
 <body>
 <!-- Single-page app: library + editor are two views in one WebView, toggled by app.js (no page
@@ -28,6 +29,10 @@
 <div id="editor-view" style="display:none">
   <div id="canvas-area">
     <div id="paper">
+      <!-- Interactive-format content (text/image/MCQ/drawing/animation), rendered here then BAKED
+           onto the opaque ink surface so the daemon pen writes over it. Hidden under the surface;
+           only its baked snapshot is seen. Empty for plain handwritten notebooks. -->
+      <div id="content-layer"></div>
       <div id="eraser-cursor"></div>
     </div>
     <!-- Web-defined animation placed on the page. Native samples this region + fast-refreshes it onto
@@ -125,12 +130,19 @@
   </div>
 </div>
 
+<!-- Interactive reading mode (interactive-format notebooks). The native ink surface is hidden while
+     this is shown, so the WebView is the live, interactive layer (selectable text, tappable MCQs,
+     animation play/pause). The daemon is used only inside sticky-note drawing areas. -->
+<div id="reader-view" style="display:none"></div>
+
 <script src="js/bridge.js"></script>
 <script src="js/models.js"></script>
 <script src="js/storage-web.js"></script>
 <script src="js/history.js"></script>
 <script src="js/pen-priority.js"></script>
 <script src="js/library-controller.js"></script>
+<script src="js/content-blocks.js"></script>
+<script src="js/reader-controller.js"></script>
 <script src="js/editor-controller.js"></script>
 <script src="js/app.js"></script>
 </body>

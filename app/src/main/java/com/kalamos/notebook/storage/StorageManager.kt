@@ -316,6 +316,24 @@ class StorageManager(private val context: Context) {
         return notebookDir(notebookId).absolutePath
     }
 
+    /** A notebook asset (image) as a base64 data: URL for the WebView content layer. [relPath] is
+     *  relative to the notebook dir (e.g. "assets/koch.jpg"); kept inside the notebook dir (no ..
+     *  traversal). "" if missing/unreadable. */
+    fun getNotebookAssetDataUrl(notebookId: String, relPath: String): String {
+        return try {
+            val dir = notebookDir(notebookId).canonicalFile
+            val f = File(dir, relPath).canonicalFile
+            if (!f.path.startsWith(dir.path) || !f.exists()) return ""
+            val mime = when (f.extension.lowercase()) {
+                "png" -> "image/png"; "jpg", "jpeg" -> "image/jpeg"; "gif" -> "image/gif"
+                "webp" -> "image/webp"; "svg" -> "image/svg+xml"; else -> "application/octet-stream"
+            }
+            "data:$mime;base64," + android.util.Base64.encodeToString(f.readBytes(), android.util.Base64.NO_WRAP)
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     fun getAppDataDir(): String {
         return rootDir.absolutePath
     }

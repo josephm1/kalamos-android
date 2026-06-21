@@ -1,0 +1,195 @@
+/* Interactive-format content layer. Rendered over #paper, then BAKED onto the opaque ink surface
+   (the user writes over the baked pixels with the daemon pen). It is never the live touch layer, so
+   nothing here is interactive — MCQs are answered by circling with the pen. No scrolling: each page's
+   blocks are authored to fit; overflow is clipped. High-contrast, generous spacing for e-ink. */
+#content-layer {
+  position: absolute; inset: 0;
+  overflow: hidden;                 /* no scroll — page-turn buttons move pages */
+  box-sizing: border-box;
+  padding: 26px 40px;
+  background: transparent;          /* the white page comes from the ink surface */
+  color: #111;
+  font-family: Georgia, 'Times New Roman', serif;
+  display: none;                    /* shown only for notebooks that have content blocks */
+}
+#content-layer.has-content { display: block; }
+
+.cb { margin: 0 0 16px; }
+
+/* text */
+.cb-text h1 { font-size: 30px; margin: 2px 0 12px; line-height: 1.15; }
+.cb-text h2 { font-size: 23px; margin: 4px 0 9px; }
+.cb-text h3 { font-size: 19px; margin: 4px 0 7px; }
+.cb-text p  { font-size: 18px; line-height: 1.5; margin: 8px 0; }
+.cb-text ul { margin: 6px 0 6px 22px; } .cb-text li { font-size: 18px; line-height: 1.45; }
+.cb-text code { font-family: ui-monospace, monospace; background: #eee; padding: 0 4px; border-radius: 3px; }
+
+/* image */
+.cb-figure { text-align: center; margin: 14px 0; }
+.cb-img { max-width: 100%; max-height: 420px; border: 1px solid #000; background: #fff; object-fit: contain; }
+.cb-fit-cover .cb-img { object-fit: cover; } .cb-fit-fill .cb-img { object-fit: fill; }
+.cb-caption { font-size: 14px; color: #333; margin-top: 5px; font-style: italic;
+  font-family: system-ui, sans-serif; line-height: 1.35; }
+
+/* MCQ — static; answered by circling a choice with the pen */
+.cb-mcq { padding: 14px 16px; border: 2px solid #000; border-radius: 12px; background: #fafafa; }
+.cb-mcq-q { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+.cb-mcq-q .qnum { display: inline-block; min-width: 26px; }
+.cb-choices { display: flex; flex-direction: column; gap: 9px; }
+.cb-choice { font-size: 17px; padding: 9px 14px; border: 2px solid #000; border-radius: 9px;
+  background: #fff; font-family: system-ui, sans-serif; }
+.cb-choice .lett { font-weight: 700; margin-right: 8px; }
+.cb-mcq-hint { font-size: 13px; color: #555; margin-top: 9px; font-family: system-ui, sans-serif; font-style: italic; }
+
+/* drawing — a bounded sketch box; the user draws inside it with the daemon pen (high contrast) */
+.cb-draw-label { font-family: system-ui, sans-serif; font-weight: 700; font-size: 17px; color: #000; margin-bottom: 7px; }
+.cb-draw-box { border: 2.5px solid #000; border-radius: 10px; background: #fff;
+  display: flex; align-items: flex-start; justify-content: flex-end; }
+.cb-draw-box .hint { font-family: system-ui, sans-serif; font-size: 13px; font-weight: 600; color: #000; padding: 6px 10px; }
+
+/* ---- clean sketch mode (no old editor chrome) ---- */
+#editor-view.sketch #menu { display: none; }            /* hide the floating editor menu while sketching */
+#content-layer { padding-bottom: 64px; }                /* leave room for the bottom controls */
+/* inline drawing box (lungs) full page */
+#content-layer.sketch-full:not(.sketch-modal) .cb-draw-box {
+  position: absolute; left: 8px; right: 8px; top: 50px; bottom: 8px; height: auto; }
+
+/* centred, header-less Post-it (sticky note) — overlays the page; the content stays visible behind */
+.sk-wrap { position: absolute; inset: 0 0 58px 0; display: flex; align-items: center; justify-content: center; }
+.sk-note { width: 480px; max-width: 92%; background: #fffdf0; border: 3px solid #000; border-radius: 12px;
+  box-shadow: 0 6px 0 rgba(0,0,0,0.3); padding: 12px; }
+.sk-box { height: 320px; border: 2.5px solid #000; border-radius: 8px; background: #fff; }
+/* sticky note full screen: fill the page, the box fills the note */
+#content-layer.sketch-modal.sketch-full .sk-wrap { inset: 0; }
+#content-layer.sketch-modal.sketch-full .sk-note { position: absolute; inset: 6px; width: auto; max-width: none;
+  box-shadow: none; padding: 6px; }
+#content-layer.sketch-modal.sketch-full .sk-box { height: 100%; box-sizing: border-box; }
+
+/* small mode: Done + Full-page, outside/below the box */
+.sk-controls { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; gap: 14px;
+  justify-content: center; padding: 0 16px; }
+.sk-ctl { font-family: system-ui, sans-serif; font-size: 16px; font-weight: 700; padding: 9px 18px;
+  border: 2.5px solid #000; border-radius: 10px; background: #fff; color: #000; }
+/* full screen: a shrink-to-window button inside the box, bottom-right */
+.sk-shrink { position: absolute; right: 16px; bottom: 16px; z-index: 5; width: 46px; height: 46px;
+  border: 2.5px solid #000; border-radius: 10px; background: #fff; color: #000; font-size: 22px; line-height: 1; }
+
+/* animation — a static framed placeholder in the baked content; motion is a future native pass */
+.cb-anim { text-align: center; margin: 14px 0; }
+.cb-anim-stage { width: 240px; height: 200px; margin: 0 auto; }
+.cb-anim svg { width: 100%; height: 100%; }
+
+/* ============== Interactive reading mode (#reader-view, the live WebView layer) ============== */
+#reader-view {
+  position: absolute; inset: 0;
+  display: none; flex-direction: column;
+  background: #fff; color: #111;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+.rd-bar, .rd-nav {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; border-bottom: 2px solid #000;
+  font-family: system-ui, sans-serif; flex: 0 0 auto;
+}
+.rd-nav { border-top: 2px solid #000; border-bottom: none; justify-content: space-between; }
+.rd-title { font-weight: 700; font-size: 17px; flex: 1; text-align: center; }
+.rd-pageind { font-size: 14px; color: #333; min-width: 48px; text-align: right; }
+.rd-btn { font-family: system-ui, sans-serif; font-size: 15px; padding: 8px 16px;
+  border: 2px solid #000; border-radius: 8px; background: #fff; color: #000; }
+.rd-btn:disabled { opacity: 0.32; }
+.rd-btn:active { background: #000; color: #fff; }
+
+/* the page fills the remaining space; no scroll (content authored to fit) */
+.rd-page { flex: 1 1 auto; overflow: hidden; padding: 22px 34px;
+  max-width: 860px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+
+.rd-text h1 { font-size: 30px; margin: 4px 0 12px; line-height: 1.15; }
+.rd-text h2 { font-size: 23px; margin: 6px 0 9px; }
+.rd-text h3 { font-size: 19px; margin: 6px 0 7px; }
+.rd-text p  { font-size: 18px; line-height: 1.5; margin: 9px 0; }
+.rd-text ul { margin: 6px 0 6px 22px; } .rd-text li { font-size: 18px; line-height: 1.45; }
+.rd-text code { font-family: ui-monospace, monospace; background: #eee; padding: 0 4px; border-radius: 3px; }
+
+.rd-figure { text-align: center; margin: 14px 0; }
+.rd-img { max-width: 100%; max-height: 440px; border: 1px solid #000; background: #fff; object-fit: contain; }
+.rd-figure.cb-fit-cover .rd-img { object-fit: cover; }
+.rd-caption { font-size: 14px; color: #333; margin-top: 6px; font-style: italic;
+  font-family: system-ui, sans-serif; line-height: 1.4; }
+.rd-img-missing::before { content: '🖼 image unavailable'; display: block; padding: 28px;
+  border: 1px dashed #999; color: #777; }
+
+.rd-mcq { margin: 18px 0; padding: 16px 18px; border: 2px solid #000; border-radius: 12px; background: #fafafa; }
+.rd-mcq-q { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+.rd-choices { display: flex; flex-direction: column; gap: 10px; }
+.rd-choice { font-size: 17px; text-align: left; padding: 11px 14px; border: 2px solid #000;
+  border-radius: 9px; background: #fff; font-family: system-ui, sans-serif; }
+.rd-choice.sel { background: #000; color: #fff; }
+.rd-choice.correct { border-color: #128a18; box-shadow: inset 0 0 0 2px #128a18; }
+.rd-choice.correct::after { content: '  ✓'; color: #128a18; font-weight: 700; }
+.rd-choice.wrong { border-color: #b00; box-shadow: inset 0 0 0 2px #b00; }
+.rd-choice.wrong::after { content: '  ✗'; color: #b00; font-weight: 700; }
+.rd-mcq-foot { margin-top: 14px; }
+.rd-explain { display: none; margin-top: 12px; font-size: 16px; line-height: 1.5;
+  padding: 10px 12px; border-left: 4px solid #000; background: #fff; }
+.rd-explain.show { display: block; }
+
+/* the page is the selection surface for the inverted-pen highlighter (no scroll-hijack); disable the
+   browser's own text selection + its copy/select/share callout — we render our own selection */
+.rd-page { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* overlay layers for selection + persisted highlights (fixed = viewport coords from getClientRects) */
+.rd-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 40; }
+/* persisted highlight: yellow per-line rects + a single black bounding-outline box */
+.rd-hl-rect { position: fixed; background: #ffe85c; opacity: 0.55; border-radius: 1px; }
+.rd-hl-box  { position: fixed; border: 1.5px solid #000; border-radius: 3px; }
+/* live selection while dragging the inverted pen (slightly lighter) */
+.rd-sel-rect { position: fixed; background: #ffe85c; opacity: 0.4; }
+.rd-sel-box  { position: fixed; border: 1.5px dashed #000; border-radius: 3px; }
+/* tiny pencil-glyph marker that a highlight has a sticky note (clickable to reopen/edit). Small, not
+   a filled box; the highlight stays fully highlighted underneath. */
+.rd-note-icon { position: fixed; pointer-events: auto; width: 10px; height: 10px; padding: 0; margin: 0;
+  background: transparent; border: none; line-height: 0; }
+.rd-note-icon svg { width: 10px; height: 10px; display: block; }
+
+/* selection popup (Highlight / Sticky note / close) */
+.rd-pop { position: absolute; z-index: 50; display: flex; gap: 0;
+  border: 2px solid #000; border-radius: 10px; overflow: hidden; background: #fff;
+  box-shadow: 0 2px 0 #000; font-family: system-ui, sans-serif; }
+.rd-pop-btn { font-size: 15px; padding: 9px 14px; background: #fff; border: none; border-right: 2px solid #000; }
+.rd-pop-btn:last-child { border-right: none; }
+.rd-pop-btn:active { background: #000; color: #fff; }
+
+/* sticky-note overlay: a centred Post-it with its own drawing canvas, overlaying the reader (the page
+   + highlight stay visible behind it). Default small; .full fills the screen with a shrink button. */
+.rd-note-wrap { position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center; }
+.rd-note-card { position: relative; width: 480px; max-width: 92%; background: #fffdf0; border: 3px solid #000;
+  border-radius: 12px; box-shadow: 0 6px 0 rgba(0,0,0,0.3); padding: 12px; }
+.rd-note-card.full { position: absolute; inset: 6px; width: auto; max-width: none; padding: 6px; box-shadow: none; }
+.rd-note-box { position: relative; height: 320px; border: 2.5px solid #000; border-radius: 8px;
+  background: #fff; overflow: hidden; touch-action: none; }
+.rd-note-card.full .rd-note-box { position: absolute; inset: 6px; height: auto; }
+.rd-sketch-canvas { position: absolute; inset: 0; touch-action: none; }
+.rd-note-ctl { margin-top: 10px; display: flex; gap: 14px; justify-content: center; }
+.rd-note-card.full .rd-note-ctl { display: none; }
+.rd-note-shrink { display: none; position: absolute; right: 18px; bottom: 18px; z-index: 5;
+  width: 46px; height: 46px; border: 2.5px solid #000; border-radius: 10px; background: #fff;
+  color: #000; font-size: 22px; line-height: 1; }
+.rd-note-card.full .rd-note-shrink { display: block; }
+
+.rd-draw { margin: 18px 0; }
+.rd-draw-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.rd-draw-btn { padding: 6px 14px; font-size: 14px; }
+.rd-draw-label { font-family: system-ui, sans-serif; font-weight: 700; font-size: 16px; }
+.rd-draw-box { border: 2px dashed #000; border-radius: 10px; background: #fff;
+  display: flex; align-items: flex-start; justify-content: flex-end; }
+.rd-draw-box .hint { font-family: system-ui, sans-serif; font-size: 13px; font-weight: 600; color: #000; padding: 6px 10px; }
+
+.rd-anim { text-align: center; margin: 16px 0; }
+.rd-anim-stage { width: 240px; height: 200px; margin: 0 auto; }
+.rd-anim-stage svg { width: 100%; height: 100%; }
+.rd-anim-ctrl { margin-top: 8px; }
+.rd-anim-stage .lung { transform-origin: 120px 130px; }
+.rd-anim-stage.playing path:nth-of-type(3) { animation: breathe-l 3.4s ease-in-out infinite; transform-origin: 78px 130px; }
+.rd-anim-stage.playing path:nth-of-type(4) { animation: breathe-r 3.4s ease-in-out infinite; transform-origin: 162px 130px; }
+@keyframes breathe-l { 0%,100% { transform: scale(1,1); } 50% { transform: scale(1.08,1.12); } }
+@keyframes breathe-r { 0%,100% { transform: scale(1,1); } 50% { transform: scale(1.08,1.12); } }

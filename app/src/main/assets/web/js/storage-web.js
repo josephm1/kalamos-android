@@ -8,7 +8,13 @@ function buildMeta(nb) {
     createdAt: nb.createdAt,
     updatedAt: nb.updatedAt,
     defaultTemplate: nb.defaultTemplate,
-    pages: nb.pages.map(function(p) { return { pageId: p.pageId, template: p.template } })
+    pages: nb.pages.map(function(p) {
+      // Interactive-format content rides in the (small) meta so it loads with the notebook; only
+      // included when the page actually has blocks (plain pages stay byte-for-byte unchanged).
+      const pm = { pageId: p.pageId, template: p.template }
+      if (Array.isArray(p.blocks) && p.blocks.length) pm.blocks = p.blocks
+      return pm
+    })
   }
 }
 
@@ -18,7 +24,10 @@ function metaToNotebook(raw) {
   try {
     const m = JSON.parse(raw)
     if (m && m.notebookId && Array.isArray(m.pages)) {
-      m.pages = m.pages.map(function(p) { return { pageId: p.pageId, template: p.template, strokes: null } })
+      m.pages = m.pages.map(function(p) {
+        return { pageId: p.pageId, template: p.template, strokes: null,
+                 blocks: Array.isArray(p.blocks) ? p.blocks : null }
+      })
       return m
     }
   } catch (e) {}
@@ -58,6 +67,7 @@ const Storage = {
       if (Bridge.savePage(notebook.notebookId, page.pageId, JSON.stringify(page.strokes)) !== 'ok') return false
       page._dirty = false
     }
+    delete _metaCache[notebook.notebookId]   // the library preload cache is now stale — force a fresh read
     return Bridge.saveMeta(notebook.notebookId, JSON.stringify(buildMeta(notebook))) === 'ok'
   },
 
@@ -70,6 +80,7 @@ const Storage = {
         page._dirty = false
       }
     }
+    delete _metaCache[notebook.notebookId]   // invalidate the stale library preload cache after a save
     // meta always written (covers updatedAt, page add/delete/reorder, template, title) — it's tiny
     return Bridge.saveMeta(notebook.notebookId, JSON.stringify(buildMeta(notebook))) === 'ok'
   },

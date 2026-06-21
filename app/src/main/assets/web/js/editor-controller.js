@@ -11,6 +11,7 @@ let autosavePending = false
 let inkSdkActive = false      // true once BigmeInkController confirms attach
 let daemonErrorTimer = null   // deferred "pen engine unavailable" toast (cancelled on a quick retry)
 let flipEraserActive = false  // true when eraser mode was auto-triggered by USI stylus flip
+let contentActive = false     // true while an interactive-format content layer is baked on the surface
 let eraseBox = null           // accumulates the bbox (model px) of strokes erased since the last refresh
 let lastErasePoint = null     // previous eraser sample, so a swipe erases along the path (not just at samples)
 let eraseRefreshTimer = null  // throttle timer for the live erase refresh during a swipe
@@ -85,7 +86,24 @@ window.loadNotebookById = function(notebookId) {
   const nb = Storage.takeCachedMeta(notebookId) || Storage.loadMeta(notebookId)
   if (nb) {
     notebook = nb
-    currentPageIndex = 0           // strokes load lazily; syncNativePage decides per page (adaptive)
+    // Normally open at page 0; a sketch session (App.openSketch) opens directly at its page.
+    currentPageIndex = (window._openAtPage != null) ? Math.min(window._openAtPage, nb.pages.length - 1) : 0
+    window._openAtPage = null
+    // Sticky-note sketch: point the daemon at this note's own strokes (in block.hl[hi].note.strokes).
+    window._sketchNoteStrokes = null
+    if (window._sketchNote) {
+      const p = notebook.pages[currentPageIndex]
+      const blk = p && p.blocks && p.blocks[window._sketchNote.bi]
+      const hl = blk && Array.isArray(blk.hl) && blk.hl[window._sketchNote.hi]
+      if (hl) {
+        if (!hl.note) hl.note = {}
+        // Reset if missing OR in the old web-canvas format (point arrays without a .points field).
+        if (!Array.isArray(hl.note.strokes) || (hl.note.strokes.length && !hl.note.strokes[0].points)) {
+          hl.note.strokes = []
+        }
+        window._sketchNoteStrokes = hl.note.strokes
+      }
+    }
     History.clear()
     activeStroke = null
     isDrawing = false
@@ -168,9 +186,11 @@ function detachInk() {
 // append to the notebook model, and save.
 window.onStrokesBatch = function(strokes) {
   if (!notebook || !strokes || strokes.length === 0) return
-  ensurePageLoaded(currentPageIndex)   // lazy: the page being written to must have its strokes array
+  const noteBuf = window._sketchNoteStrokes   // sticky-note sketch → strokes go to the note, not the page
+  if (!noteBuf) ensurePageLoaded(currentPageIndex)   // lazy: the page being written to needs its array
   const page = currentPage()
-  if (!page) return
+  const target = noteBuf || (page && page.strokes)
+  if (!target) return
   const dpr = window.devicePixelRatio || 1
   const felt = activePenType === 'felt'
   const tool = felt ? 'felt' : (activePenType === 'selection' ? 'selection' : 'pen')
@@ -188,8 +208,9 @@ window.onStrokesBatch = function(strokes) {
         return pt
       })
     }
-    const idx = page.strokes.length
-    page.strokes.push(stroke)
+    const idx = target.length
+    target.push(stroke)
+    if (noteBuf) { triggerAutosave(); continue }   // note strokes persist in meta (block.hl.note)
     page._dirty = true
     ;(function(st, i) {
       History.push(
@@ -222,6 +243,7 @@ window.onInkControllerReady = function(available) {
     if (daemonErrorTimer) { clearTimeout(daemonErrorTimer); daemonErrorTimer = null }
     // Surface is ready — paint the current page's existing strokes onto the native surface.
     syncNativePage()
+    renderPageContent()   // bake any interactive-format content under the ink
     // Bake the FULL toolbar only on open (set by loadNotebookById); page-change re-attach handles
     // its own targeted page-number update, so it doesn't re-bake the whole strip.
     if (window._needFullToolbar) {
@@ -263,23 +285,31 @@ function syncNativePage(refreshRect) {
   // HEAVY page shows the template/lines now and defers its strokes a beat later; a LIGHT page parses +
   // renders immediately (no penalty). Applies on open AND page-switch — heavy pages are delayed, light
   // ones are instant.
-  if (page.strokes === null) {
-    const raw = Storage.loadPageRaw(notebook.notebookId, page.pageId)
-    if (raw.length > HEAVY_PAGE_BYTES) {
-      Bridge.renderInk(JSON.stringify(out))   // out.s empty → template/lines only; strokes deferred
-      const idx = currentPageIndex
-      if (_strokeLoadTimer) clearTimeout(_strokeLoadTimer)
-      _strokeLoadTimer = setTimeout(function() {
-        _strokeLoadTimer = null
-        page.strokes = Storage.parseStrokes(raw)
-        if (notebook && currentPageIndex === idx) syncNativePage()   // render strokes over the template
-      }, STROKE_LOAD_DELAY_MS)
-      return
+  // Sticky-note daemon sketch: render the NOTE's own strokes (the content page is baked behind by
+  // renderPageContent). Otherwise the page's strokes (with the adaptive template-first lazy load).
+  let strokesSrc = window._sketchNoteStrokes
+  if (!strokesSrc && window._sketchNote) strokesSrc = []   // note mode w/o buffer → empty, NEVER the page's
+  if (!strokesSrc) {
+    if (page.strokes === null) {
+      const raw = Storage.loadPageRaw(notebook.notebookId, page.pageId)
+      if (raw.length > HEAVY_PAGE_BYTES) {
+        Bridge.renderInk(JSON.stringify(out))   // out.s empty → template/lines only; strokes deferred
+        const idx = currentPageIndex
+        if (_strokeLoadTimer) clearTimeout(_strokeLoadTimer)
+        _strokeLoadTimer = setTimeout(function() {
+          _strokeLoadTimer = null
+          page.strokes = Storage.parseStrokes(raw)
+          if (notebook && currentPageIndex === idx) syncNativePage()   // render strokes over the template
+        }, STROKE_LOAD_DELAY_MS)
+        return
+      }
+      page.strokes = Storage.parseStrokes(raw)  // light page → parse now, render full below
     }
-    page.strokes = Storage.parseStrokes(raw)  // light page → parse now, render full below
+    strokesSrc = page.strokes
   }
-  for (let s = 0; s < page.strokes.length; s++) {
-    const st = page.strokes[s]
+  for (let s = 0; s < strokesSrc.length; s++) {
+    const st = strokesSrc[s]
+    if (!st || !st.points) continue   // skip malformed / legacy-format strokes
     const felt = st.tool === 'felt'
     const dashed = st.tool === 'selection'
     const pts = []
@@ -297,6 +327,104 @@ function syncNativePage(refreshRect) {
   Bridge.renderInk(JSON.stringify(out))
   schedulePrefetch()   // page is up — warm the neighbouring pages once we settle (instant flips)
   scheduleEvict()      // …and, much more lazily, drop pages that have fallen outside the window
+}
+
+// Interactive-format pages: render this page's content blocks into #content-layer, then bake them
+// onto the ink surface (under the ink) so the daemon pen writes over the article. Called on page
+// change only — the baked bitmap persists across stroke/erase/undo re-renders (drawn natively each
+// time), so syncNativePage never re-bakes. Plain pages clear any prior content. No scrolling: the
+// content layer is clipped to the page; the page-turn buttons move between pages.
+function renderPageContent() {
+  if (!notebook) return
+  const page = currentPage()
+  const layer = document.getElementById('content-layer')
+  const sketch = !!window._sketchActive
+  layer.classList.toggle('sketch-full', sketch && !!window._sketchFull)
+  layer.classList.toggle('sketch-modal', sketch && !!window._sketchModal)
+
+  if (page && Array.isArray(page.blocks) && page.blocks.length) {
+    ContentBlocks.render(layer, page, notebook.notebookId, function() {
+      if (sketch && window._sketchModal) layer.appendChild(buildSketchBox())  // Post-it OVER the content
+      if (sketch) addSketchControls(layer)
+      bakeContentAndBound(layer)
+    })
+    contentActive = true
+  } else if (sketch && window._sketchModal) {
+    layer.classList.add('has-content'); layer.innerHTML = ''   // sticky note on a content-less page
+    layer.appendChild(buildSketchBox()); addSketchControls(layer)
+    bakeContentAndBound(layer)
+    contentActive = true
+  } else {
+    layer.classList.remove('has-content')
+    layer.innerHTML = ''
+    Bridge.setWritingBounds(0, 0, 0, 0)   // plain page → pen writes anywhere
+    if (contentActive) { Bridge.clearContent(); contentActive = false }
+  }
+}
+
+// Bake #content-layer onto the ink surface; confine the daemon pen to the sketch box; and (in full
+// screen) exclude the shrink button that sits inside the box so the pen doesn't draw on it.
+function bakeContentAndBound(layer) {
+  const dpr = window.devicePixelRatio || 1
+  const rect = paper.getBoundingClientRect()
+  const SL = Math.round(rect.left * dpr), ST = Math.round(rect.top * dpr)
+  const SR = Math.round(rect.right * dpr), SB = Math.round(rect.bottom * dpr)
+  // Confine the daemon pen to the inner draw box.
+  const box = layer.querySelector('.sk-box, .cb-draw-box')
+  if (box && window._sketchActive) {
+    const r = box.getBoundingClientRect()
+    Bridge.setWritingBounds(Math.round(r.left * dpr), Math.round(r.top * dpr),
+                            Math.round(r.right * dpr), Math.round(r.bottom * dpr))
+  } else {
+    Bridge.setWritingBounds(0, 0, 0, 0)
+  }
+  // Sticky note → bake but refresh ONLY the Post-it card (partial); everything else → full refresh.
+  const card = (window._sketchModal && window._sketchNote) ? layer.querySelector('.sk-note') : null
+  if (card) {
+    const c = card.getBoundingClientRect()
+    Bridge.snapshotContentPartial(SL, ST, SR, SB,
+      Math.round(c.left * dpr) - 8, Math.round(c.top * dpr) - 8,
+      Math.round(c.right * dpr) + 8, Math.round(c.bottom * dpr) + 8)
+  } else {
+    Bridge.snapshotContent(SL, ST, SR, SB)
+  }
+  // Full-screen shrink button sits inside the box → exclude it so the pen doesn't draw on it.
+  const sh = layer.querySelector('.sk-shrink')
+  if (sh) {
+    const r = sh.getBoundingClientRect()
+    Bridge.setWritingExclusion(Math.round(r.left * dpr), Math.round(r.top * dpr),
+                               Math.round(r.right * dpr), Math.round(r.bottom * dpr))
+  } else {
+    Bridge.setWritingExclusion(0, 0, 0, 0)
+  }
+}
+
+// A centred, header-less, high-contrast Post-it box for a sticky-note sketch (overlays the page).
+function buildSketchBox() {
+  const wrap = document.createElement('div'); wrap.className = 'sk-wrap'
+  const note = document.createElement('div'); note.className = 'sk-note'
+  note.appendChild(Object.assign(document.createElement('div'), { className: 'sk-box' }))
+  wrap.appendChild(note)
+  return wrap
+}
+
+// Sketch controls. Small: Done + Full-page OUTSIDE the box (tappable, outside the pen bounds). Full
+// screen: a single shrink-to-window button INSIDE the box's bottom-right (excluded from the pen).
+function addSketchControls(layer) {
+  if (window._sketchFull) {
+    const sh = document.createElement('button'); sh.className = 'sk-shrink'; sh.textContent = '⊟'
+    sh.title = 'Window'
+    sh.addEventListener('click', function() { window._sketchFull = false; renderPageContent() })
+    layer.appendChild(sh)
+    return
+  }
+  const bar = document.createElement('div'); bar.className = 'sk-controls'
+  const done = document.createElement('button'); done.className = 'sk-ctl'; done.textContent = '✓ Done'
+  done.addEventListener('click', function() { App.showLibrary() })
+  const full = document.createElement('button'); full.className = 'sk-ctl'; full.textContent = '⛶ Full page'
+  full.addEventListener('click', function() { window._sketchFull = true; renderPageContent() })
+  bar.appendChild(done); bar.appendChild(full)
+  layer.appendChild(bar)
 }
 
 // Deferred-stroke timer for the adaptive template-first path (heavy pages only).
@@ -684,6 +812,7 @@ function goToPage(index) {
   // The daemon stays attached across page changes (same full-screen surface) — re-attaching it was
   // ~160ms of reflection + re-bind per turn. Just re-render the new page onto the surface.
   syncNativePage()
+  renderPageContent()   // re-bake the new page's interactive content (or clear it on a plain page)
   snapshotToolbarEls(['btn-prev', 'page-num', 'btn-next', 'btn-add', 'btn-delete'])
 }
 
@@ -732,6 +861,7 @@ function addPage() {
   isDrawing = false
   updateUI()
   syncNativePage()   // daemon stays attached; just re-render the new page
+  renderPageContent()   // new page has no blocks → clears any baked content
   snapshotToolbarEls(['btn-prev', 'page-num', 'btn-next', 'btn-add', 'btn-delete'])
   triggerAutosave()
 }
@@ -762,6 +892,7 @@ function deletePage() {
   isDrawing = false
   updateUI()
   syncNativePage()   // daemon stays attached; just re-render the new page
+  renderPageContent()   // re-bake the now-current page's content (or clear it)
   snapshotToolbarEls(['btn-prev', 'page-num', 'btn-next', 'btn-add', 'btn-delete'])
   triggerAutosave()
 }

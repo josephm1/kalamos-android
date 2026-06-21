@@ -140,6 +140,26 @@ const Bridge = {
     }
   },
 
+  snapshotContent(left, top, right, bottom) {
+    try { AndroidBridge.snapshotContent(left, top, right, bottom) } catch (e) { console.warn('Bridge.snapshotContent error:', e) }
+  },
+
+  snapshotContentPartial(left, top, right, bottom, rl, rt, rr, rb) {
+    try { AndroidBridge.snapshotContentPartial(left, top, right, bottom, rl, rt, rr, rb) } catch (e) { console.warn('Bridge.snapshotContentPartial error:', e) }
+  },
+
+  skipWakeRefresh() {
+    try { AndroidBridge.skipWakeRefresh() } catch (e) { console.warn('Bridge.skipWakeRefresh error:', e) }
+  },
+
+  clearContent() {
+    try { AndroidBridge.clearContent() } catch (e) { console.warn('Bridge.clearContent error:', e) }
+  },
+
+  getNotebookAsset(notebookId, relPath) {
+    try { return AndroidBridge.getNotebookAsset(notebookId, relPath) } catch (e) { console.warn('Bridge.getNotebookAsset error:', e); return '' }
+  },
+
   setWritingTop(topPx) {
     try {
       AndroidBridge.setWritingTop(topPx)
@@ -154,6 +174,10 @@ const Bridge = {
     } catch (e) {
       console.warn('Bridge.setWritingExclusion error:', e)
     }
+  },
+
+  setWritingBounds(left, top, right, bottom) {
+    try { AndroidBridge.setWritingBounds(left, top, right, bottom) } catch (e) { console.warn('Bridge.setWritingBounds error:', e) }
   },
 
   setErasing(active) {

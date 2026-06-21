@@ -31,8 +31,14 @@ class BridgeRouter {
     @JavascriptInterface fun snapshotToolbar(heightPx: Int) { delegate?.snapshotToolbar(heightPx) }
     @JavascriptInterface fun snapshotToolbarRegion(left: Int, top: Int, right: Int, bottom: Int) { delegate?.snapshotToolbarRegion(left, top, right, bottom) }
     @JavascriptInterface fun snapshotMenu(left: Int, top: Int, right: Int, bottom: Int, refreshLeft: Int, refreshTop: Int, refreshRight: Int, refreshBottom: Int) { delegate?.snapshotMenu(left, top, right, bottom, refreshLeft, refreshTop, refreshRight, refreshBottom) }
+    @JavascriptInterface fun snapshotContent(left: Int, top: Int, right: Int, bottom: Int) { delegate?.snapshotContent(left, top, right, bottom) }
+    @JavascriptInterface fun snapshotContentPartial(left: Int, top: Int, right: Int, bottom: Int, rl: Int, rt: Int, rr: Int, rb: Int) { delegate?.snapshotContentPartial(left, top, right, bottom, rl, rt, rr, rb) }
+    @JavascriptInterface fun skipWakeRefresh() { delegate?.skipWakeRefresh() }
+    @JavascriptInterface fun clearContent() { delegate?.clearContent() }
+    @JavascriptInterface fun getNotebookAsset(notebookId: String, relPath: String): String = delegate?.getNotebookAsset(notebookId, relPath) ?: ""
     @JavascriptInterface fun setWritingTop(topPx: Int) { delegate?.setWritingTop(topPx) }
     @JavascriptInterface fun setWritingExclusion(left: Int, top: Int, right: Int, bottom: Int) { delegate?.setWritingExclusion(left, top, right, bottom) }
+    @JavascriptInterface fun setWritingBounds(left: Int, top: Int, right: Int, bottom: Int) { delegate?.setWritingBounds(left, top, right, bottom) }
     @JavascriptInterface fun setErasing(active: Boolean) { delegate?.setErasing(active) }
     @JavascriptInterface fun setPenType(type: String) { delegate?.setPenType(type) }
     @JavascriptInterface fun startWebAnim(left: Int, top: Int, right: Int, bottom: Int) { delegate?.startWebAnim(left, top, right, bottom) }

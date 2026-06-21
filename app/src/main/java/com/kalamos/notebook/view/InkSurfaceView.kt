@@ -45,6 +45,7 @@ class InkSurfaceView @JvmOverloads constructor(
     private var pendingOnReady: ((Boolean) -> Unit)? = null
     private var writingTopPx = 0
     private val exclRect = Rect()   // floating-menu pen-exclusion bounds, re-applied across attaches
+    private val boundsRect = Rect() // writing bounds: pen outside is ignored (sketch box). Empty = none.
     private var eraserMode = false
     private var surfaceReady = false
     private var attached = false
@@ -54,12 +55,17 @@ class InkSurfaceView @JvmOverloads constructor(
     // Full-screen wake refresh happens only on the first present of a session (cold-open fix); later
     // renders refresh just the paper, so the toolbar never flashes on page-change / button taps.
     private var hasPresentedOnce = false
+    // Skip the full-screen wake refresh on the NEXT attach (sticky-note open → partial refresh only).
+    private var skipNextWake = false
     // Snapshot of the web toolbar / floating menu, composited onto the page so the web UI is visible
     // while the ink surface stays the sole layer. [menuLeft/menuTop] = where it's drawn (0,0 for the
     // old top strip; the left-edge position for the collapsible floating menu).
     private var toolbarBitmap: Bitmap? = null
     private var menuLeft = 0
     private var menuTop = 0
+    // Interactive-format content (article text/images/MCQ/etc.) baked onto the page UNDER the ink,
+    // at the paper origin (rBounds). The daemon pen writes over it. Null for plain notebooks.
+    private var contentBitmap: Bitmap? = null
     // Deferred stroke-painting pass for heavy pages (shell shows first, strokes fill in next frame).
     private var strokesRunnable: Runnable? = null
     // The strokes currently shown (surface px). renderPage resets it; drawStroke appends. A stroke
@@ -137,6 +143,7 @@ class InkSurfaceView @JvmOverloads constructor(
         if (success) {
             controller.setWritingTop(writingTopPx)   // re-apply across (re)attaches
             controller.setWritingExclusion(exclRect.left, exclRect.top, exclRect.right, exclRect.bottom)
+            controller.setWritingBounds(boundsRect.left, boundsRect.top, boundsRect.right, boundsRect.bottom)
             controller.setEraserMode(eraserMode)
             controller.setPressureMode(pressureMode)
             controller.setDashMode(dashMode)
@@ -145,9 +152,12 @@ class InkSurfaceView @JvmOverloads constructor(
             // panel (incl. the toolbar snapshot) should refresh. On a re-attach (page change) the
             // page render refreshes just the paper, so a full refresh here would flash the toolbar.
             if (!hasPresentedOnce) {
-                pageBitmap?.let { controller.syncOverlay(it, null, true) }
+                // A sticky-note open suppresses the full-screen wake so only the note box refreshes
+                // (the rest of the panel keeps showing the reader). Otherwise the normal cold-open wake.
+                if (!skipNextWake) pageBitmap?.let { controller.syncOverlay(it, null, true) }
                 hasPresentedOnce = true
             }
+            skipNextWake = false
         }
         return success
     }
@@ -164,6 +174,7 @@ class InkSurfaceView @JvmOverloads constructor(
         // re-shows the previous notebook's page for a beat before the new one's render lands.
         pageBitmap?.eraseColor(Color.WHITE)
         toolbarBitmap = null       // also drop the baked menu/toolbar snapshot (re-baked on next open)
+        contentBitmap?.recycle(); contentBitmap = null   // drop baked content (re-baked per page on open)
         hasPresentedOnce = false   // next open does its full wake-refresh, now of the blanked page
     }
 
@@ -197,6 +208,12 @@ class InkSurfaceView @JvmOverloads constructor(
     fun setWritingExclusion(left: Int, top: Int, right: Int, bottom: Int) {
         exclRect.set(left, top, right, bottom)
         inkController?.setWritingExclusion(left, top, right, bottom)
+    }
+
+    /** Confine the daemon pen to [left,top,right,bottom] (surface px); outside is ignored. Empty clears. */
+    fun setWritingBounds(left: Int, top: Int, right: Int, bottom: Int) {
+        boundsRect.set(left, top, right, bottom)
+        inkController?.setWritingBounds(left, top, right, bottom)
     }
 
     /** Eraser mode: while active the daemon paints no ink (the pen tip erases via the web layer). */
@@ -294,6 +311,7 @@ class InkSurfaceView @JvmOverloads constructor(
         val c = pageCanvas ?: return
         strokesRunnable?.let { removeCallbacks(it); strokesRunnable = null }
         c.drawColor(Color.WHITE)
+        drawContent(c)
         drawTemplate(c, rTemplate, rSpacing, rMargin, rDpr, rBounds)
 
         if (!shellFirst) {
@@ -409,12 +427,33 @@ class InkSurfaceView @JvmOverloads constructor(
         menuTop = top
         // Re-render the page (clears the old menu footprint to paper) then draw the new menu on top.
         c.drawColor(Color.WHITE)
+        drawContent(c)
         drawTemplate(c, rTemplate, rSpacing, rMargin, rDpr, rBounds)
         drawDisplayedStrokes(c)
         c.drawBitmap(bmp, left.toFloat(), top.toFloat(), null)
         val refresh = Rect(refreshLeft, refreshTop, refreshRight, refreshBottom)
         commitPage(refresh)
         pageBitmap?.let { inkController?.syncOverlay(it, refresh, true) }
+        if (old != null && old != bmp) old.recycle()
+    }
+
+    /** Draw the baked interactive-format content at the paper origin (under template + strokes). */
+    private fun drawContent(c: Canvas) {
+        val b = contentBitmap ?: return
+        c.drawBitmap(b, rBounds.left.toFloat(), rBounds.top.toFloat(), null)
+    }
+
+    /** Skip the full-screen wake refresh on the next attach (for a partial sticky-note open). */
+    fun setSkipNextWake() { skipNextWake = true }
+
+    /** Set (or clear, with null) the baked content layer + re-render the page so it appears under the
+     *  ink. [bmp] is the paper-region snapshot from the WebView content layer (paper-px size).
+     *  [refreshRect] (surface px) limits the EPD refresh to that region — a sticky-note open passes the
+     *  note box so only it refreshes; null = full refresh. */
+    fun setContentSnapshot(bmp: Bitmap?, refreshRect: Rect? = null) {
+        val old = contentBitmap
+        contentBitmap = bmp
+        renderFromState(shellFirst = false, refreshRect = refreshRect)
         if (old != null && old != bmp) old.recycle()
     }
 

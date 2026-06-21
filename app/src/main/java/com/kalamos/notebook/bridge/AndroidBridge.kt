@@ -162,6 +162,38 @@ class AndroidBridge(
         inkManager?.snapshotMenu(left, top, right, bottom, refreshLeft, refreshTop, refreshRight, refreshBottom)
     }
 
+    /** Bake the WebView's interactive-format content layer (region [l,t,r,b] = paper, surface px)
+     *  onto the ink surface, under the ink. The pen then writes over the baked article content. */
+    @JavascriptInterface
+    fun snapshotContent(left: Int, top: Int, right: Int, bottom: Int) {
+        inkManager?.snapshotContent(left, top, right, bottom)
+    }
+
+    /** Bake the content region but limit the EPD refresh to rl,rt,rr,rb (sticky-note box) for a partial refresh. */
+    @JavascriptInterface
+    fun snapshotContentPartial(left: Int, top: Int, right: Int, bottom: Int, rl: Int, rt: Int, rr: Int, rb: Int) {
+        inkManager?.snapshotContent(left, top, right, bottom, rl, rt, rr, rb)
+    }
+
+    /** Suppress the full-screen wake refresh on the next attach (partial sticky-note open). */
+    @JavascriptInterface
+    fun skipWakeRefresh() {
+        inkManager?.skipNextWake()
+    }
+
+    /** Drop any baked content (plain notebook / page with no blocks). */
+    @JavascriptInterface
+    fun clearContent() {
+        inkManager?.clearContent()
+    }
+
+    /** A notebook asset (e.g. an image under the notebook's assets/) as a base64 data URL, for the
+     *  content layer to display. [relPath] is relative to the notebook dir. "" if missing. */
+    @JavascriptInterface
+    fun getNotebookAsset(notebookId: String, relPath: String): String {
+        return storageManager.getNotebookAssetDataUrl(notebookId, relPath)
+    }
+
     /** Restrict the daemon's writing area: pen above [topPx] (surface px) is ignored. JS owns the
      *  measurement (the toolbar strip), so the website controls the pen-input region. */
     @JavascriptInterface
@@ -173,6 +205,12 @@ class AndroidBridge(
     @JavascriptInterface
     fun setWritingExclusion(left: Int, top: Int, right: Int, bottom: Int) {
         inkManager?.setWritingExclusion(left, top, right, bottom)
+    }
+
+    /** Confine the daemon pen to a box (surface px) — for sticky-note/sketch drawing. Empty clears. */
+    @JavascriptInterface
+    fun setWritingBounds(left: Int, top: Int, right: Int, bottom: Int) {
+        inkManager?.setWritingBounds(left, top, right, bottom)
     }
 
     /** Web layer toggles eraser mode: while active, native discards any daemon stroke (the daemon
