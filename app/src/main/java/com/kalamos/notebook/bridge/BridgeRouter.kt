@@ -53,6 +53,8 @@ class BridgeRouter {
     @JavascriptInterface fun enterLibrary() { delegate?.enterLibrary() }
     @JavascriptInterface fun exitApp() { delegate?.exitApp() }
     @JavascriptInterface fun showToast(message: String) { delegate?.showToast(message) }
+    @JavascriptInterface fun setRotationLocked(locked: Boolean) { delegate?.setRotationLocked(locked) }
+    @JavascriptInterface fun isRotationLocked(): Boolean = delegate?.isRotationLocked() ?: true
     @JavascriptInterface fun setAutosaveStatus(status: String) { delegate?.setAutosaveStatus(status) }
     @JavascriptInterface fun exportNotebook(notebookId: String) { delegate?.exportNotebook(notebookId) }
     @JavascriptInterface fun getAppDataDir(): String = delegate?.getAppDataDir() ?: ""

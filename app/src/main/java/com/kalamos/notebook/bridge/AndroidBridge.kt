@@ -298,6 +298,24 @@ class AndroidBridge(
         Toast.makeText(fragment.requireContext(), message, Toast.LENGTH_SHORT).show()
     }
 
+    /** Lock the screen orientation (ignore the accelerometer) while in the app, or restore auto-rotate.
+     *  Persisted; re-applied on launch by AppFragment. */
+    @JavascriptInterface
+    fun setRotationLocked(locked: Boolean) {
+        fragment.requireContext().getSharedPreferences("kalamos_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("rotation_locked", locked).apply()
+        fragment.requireActivity().runOnUiThread {
+            fragment.requireActivity().requestedOrientation =
+                if (locked) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_NOSENSOR
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    @JavascriptInterface
+    fun isRotationLocked(): Boolean =
+        fragment.requireContext().getSharedPreferences("kalamos_prefs", android.content.Context.MODE_PRIVATE)
+            .getBoolean("rotation_locked", true)   // default: locked (no accelerometer) — the user's preference
+
     @JavascriptInterface
     fun setAutosaveStatus(status: String) {
         // UI indicator in toolbar is handled via web layer; could pipe to native status bar

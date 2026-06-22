@@ -101,6 +101,23 @@ function renderStorageSettings(body) {
     })
     body.appendChild(resetBtn)
   }
+
+  // Screen rotation (auto-rotate / accelerometer) toggle.
+  const rotLabel = document.createElement('div')
+  rotLabel.className = 'storage-current-label'
+  rotLabel.textContent = 'Screen rotation'
+  body.appendChild(rotLabel)
+  const rotBtn = document.createElement('button')
+  rotBtn.className = 'btn storage-action'
+  const setRotLabel = function() {
+    rotBtn.textContent = Bridge.isRotationLocked() ? 'Auto-rotate: OFF (tap to enable)' : 'Auto-rotate: ON (tap to lock)'
+  }
+  setRotLabel()
+  rotBtn.addEventListener('click', function() {
+    Bridge.setRotationLocked(!Bridge.isRotationLocked())
+    setRotLabel()
+  })
+  body.appendChild(rotBtn)
 }
 
 // Called from native after the system folder picker returns + migration completes.

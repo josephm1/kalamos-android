@@ -42,6 +42,12 @@ class AppFragment : Fragment() {
         // pages bump to FAST and revert to this. No-op on non-Bigme devices.
         com.inksdk.ink.EinkCenter.init(requireContext())
         com.inksdk.ink.EinkCenter.setDefaultMode()
+        // Apply the saved rotation-lock preference (default: locked — no accelerometer).
+        val rotLocked = requireContext().getSharedPreferences("kalamos_prefs", android.content.Context.MODE_PRIVATE)
+            .getBoolean("rotation_locked", true)
+        requireActivity().requestedOrientation =
+            if (rotLocked) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_NOSENSOR
+            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         val container = view as ViewGroup
         val webView = WebViewCache.app.acquire(requireContext())
         webView.id = R.id.webView

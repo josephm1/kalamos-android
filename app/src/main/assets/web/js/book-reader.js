@@ -138,22 +138,35 @@ const BookReader = {
     })
   },
 
-  // Tap an image → full-screen viewer, as large as fits, with a rotate button (e.g. view a landscape
-  // image rotated to fill the portrait screen). Tap/pen/eraser all fire 'click'.
+  // Tap an image → full-screen viewer: as large as fits, with zoom (+ pan when zoomed) and rotate
+  // (e.g. view a landscape image rotated to fill the portrait screen). Tap/pen all fire 'click'.
   openImageViewer(src) {
     const ov = el('div', 'iv-overlay')
+    const pan = el('div', 'iv-pan')
     const img = document.createElement('img'); img.className = 'iv-img'; img.src = src
-    img.addEventListener('click', function(e) { e.stopPropagation() })
-    ov.appendChild(img)
-    let rot = 0
+    pan.appendChild(img); ov.appendChild(pan)
+    let rot = 0, z = 1, tx = 0, ty = 0
+    const apply = function() {
+      img.classList.toggle('rot', rot === 90 || rot === 270)
+      img.style.transform = 'rotate(' + rot + 'deg) scale(' + z + ')'
+      pan.style.transform = 'translate(' + tx + 'px,' + ty + 'px)'
+    }
     const bar = el('div', 'iv-bar')
-    const rotate = el('button', 'rd-btn', '⟳ Rotate')
-    rotate.addEventListener('click', function(e) { e.stopPropagation(); rot = (rot + 90) % 360; img.className = 'iv-img r' + rot })
-    const close = el('button', 'rd-btn', '✕ Close')
-    close.addEventListener('click', function(e) { e.stopPropagation(); ov.remove() })
-    bar.appendChild(rotate); bar.appendChild(close); ov.appendChild(bar)
+    const mk = function(label, fn) { const b = el('button', 'rd-btn iv-btn', label); b.addEventListener('click', function(e) { e.stopPropagation(); fn() }); return b }
+    bar.appendChild(mk('－', function() { z = Math.max(1, z / 1.4); if (z === 1) { tx = 0; ty = 0 } apply() }))
+    bar.appendChild(mk('＋', function() { z = Math.min(6, z * 1.4); apply() }))
+    bar.appendChild(mk('⟳', function() { rot = (rot + 90) % 360; apply() }))
+    bar.appendChild(mk('✕', function() { ov.remove() }))
+    ov.appendChild(bar)
+    // drag to pan when zoomed in
+    let dragging = false, lx = 0, ly = 0
+    img.addEventListener('pointerdown', function(e) { if (z <= 1) return; dragging = true; lx = e.clientX; ly = e.clientY; try { img.setPointerCapture(e.pointerId) } catch (x) {} e.stopPropagation() })
+    img.addEventListener('pointermove', function(e) { if (!dragging) return; tx += e.clientX - lx; ty += e.clientY - ly; lx = e.clientX; ly = e.clientY; apply(); e.stopPropagation() })
+    const end = function() { dragging = false }
+    img.addEventListener('pointerup', end); img.addEventListener('pointercancel', end)
+    img.addEventListener('click', function(e) { e.stopPropagation() })
     ov.addEventListener('click', function() { ov.remove() })   // tap the backdrop to close
-    this.view().appendChild(ov)
+    this.view().appendChild(ov); apply()
   },
 
   // upgrade <kal-mcq>/<kal-anim>/<kal-ink> custom tags to widgets

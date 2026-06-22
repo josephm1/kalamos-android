@@ -270,6 +270,14 @@ const Bridge = {
     }
   },
 
+  setRotationLocked(locked) {
+    try { AndroidBridge.setRotationLocked(locked) } catch (e) { console.warn('Bridge.setRotationLocked error:', e) }
+  },
+
+  isRotationLocked() {
+    try { return AndroidBridge.isRotationLocked() } catch (e) { console.warn('Bridge.isRotationLocked error:', e); return true }
+  },
+
   setAutosaveStatus(status) {
     try {
       AndroidBridge.setAutosaveStatus(status)

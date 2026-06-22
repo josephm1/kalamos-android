@@ -101,15 +101,13 @@
 .bk-ink-hint { position: absolute; right: 10px; top: 8px; font-family: system-ui, sans-serif;
   font-size: 12px; font-weight: 600; color: #000; }
 
-/* full-screen image viewer (tap an image) with rotate */
-.iv-overlay { position: fixed; inset: 0; z-index: 70; background: #fff; display: flex;
-  align-items: center; justify-content: center; }
-.iv-img { max-width: 98vw; max-height: 92vh; object-fit: contain; transition: transform .12s; }
-.iv-img.r90, .iv-img.r270 { max-width: 92vh; max-height: 98vw; }
-.iv-img.r90 { transform: rotate(90deg); }
-.iv-img.r180 { transform: rotate(180deg); }
-.iv-img.r270 { transform: rotate(270deg); }
-.iv-bar { position: absolute; bottom: 18px; right: 18px; display: flex; gap: 12px; }
+/* full-screen image viewer (tap an image) with zoom + pan + rotate */
+.iv-overlay { position: fixed; inset: 0; z-index: 70; background: #fff; overflow: hidden; }
+.iv-pan { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.iv-img { max-width: 98vw; max-height: 92vh; object-fit: contain; touch-action: none; transform-origin: center; }
+.iv-img.rot { max-width: 92vh; max-height: 98vw; }
+.iv-bar { position: absolute; bottom: 18px; right: 18px; display: flex; gap: 10px; }
+.iv-btn { min-width: 48px; font-size: 20px; line-height: 1; padding: 9px 12px; }
 
 /* ============== Interactive reading mode (#reader-view, the live WebView layer) ============== */
 #reader-view {
