@@ -93,14 +93,21 @@ const BookReader = {
     this.savePosition()
   },
 
-  // --- pagination via CSS multicolumn: column-width = content width; page = translateX by -page*stride ---
+  // --- pagination via CSS multicolumn: each column = one page-width; page = translateX by page*stride.
+  // The flow's OWN width is the column width (not the padded content box), and the column height is
+  // published as --bk-colh so figures/images can be capped to fit a column (else a tall image spills
+  // down the page instead of paginating). ---
   paginate() {
     const c = this._content, f = this._flow; if (!c || !f) return
-    const w = c.clientWidth
+    const h = c.clientHeight
+    f.style.height = h + 'px'
+    f.style.setProperty('--bk-colh', h + 'px')
+    const w = f.clientWidth                       // the actual flow/page width
+    if (w < 2) return
     f.style.columnWidth = w + 'px'
-    f.style.height = c.clientHeight + 'px'
-    const stride = w + 40   // column-gap 40
-    this.pages = Math.max(1, Math.round(f.scrollWidth / stride))
+    const gap = 40
+    const stride = w + gap
+    this.pages = Math.max(1, Math.round((f.scrollWidth + gap) / stride))
     if (this.page >= this.pages) this.page = this.pages - 1
     if (this.page < 0) this.page = 0
     f.style.transform = 'translateX(' + (-this.page * stride) + 'px)'

@@ -90,6 +90,11 @@
 .bk-content { flex: 1 1 auto; position: relative; overflow: hidden; padding: 14px 22px;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
 .bk-flow { height: 100%; column-gap: 40px; column-fill: auto; will-change: transform; }
+/* keep figures whole and cap media to one column so nothing spills down the page (proper pagination) */
+.bk-flow figure { break-inside: avoid; page-break-inside: avoid; margin: 0.6em 0; }
+.bk-flow img { max-height: calc(var(--bk-colh, 80vh) - 56px); object-fit: contain; }
+.bk-flow h1, .bk-flow h2, .bk-flow h3 { break-after: avoid; }
+.bk-flow blockquote, .bk-flow kal-mcq, .bk-flow .rd-mcq, .bk-flow .rd-draw, .bk-flow .rd-anim { break-inside: avoid; }
 
 /* ============== Interactive reading mode (#reader-view, the live WebView layer) ============== */
 #reader-view {

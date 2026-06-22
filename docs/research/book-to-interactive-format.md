@@ -163,7 +163,15 @@ The handwriting app already loads page-at-a-time and never the whole notebook; b
   `PREFETCH_AHEAD`/`PREFETCH_BEHIND` neighbours inside `requestIdleCallback`, skipping while
   `appBusy()`; `evictDistantPages` nulls out-of-window content in a true idle slice, never evicting a
   dirty item (`editor-controller.js`). For books the unit becomes the **section**.
-- **Bound section size:** split long chapters at import so a single layout pass stays cheap.
+- **Section sizing (the one knob that matters):** a section is a **chapter**, bounded by content
+  length so one Blink layout/pagination pass stays cheap and resident RAM is bounded:
+  - **Max ≈ 40 KB of section HTML** (~6–10k words, ~15–30 paginated columns). Above this the importer
+    **splits** at a safe top-level block boundary (ids stable across the split).
+  - **Min ≈ 4 KB:** a chapter/fragment below this is **merged** with its neighbour — avoids lots of
+    tiny file loads and section-boundary page turns.
+  - Net: most chapters = one section; only very long chapters split; tiny front-matter merges. **Do
+    not over-split** — fewer, bounded files = fewer loads and smoother reading; many tiny files only
+    add I/O round-trips and section-boundary friction. (Splitting helps *only* to stay under the cap.)
 - **Net:** working set ≈ one section + any open note, independent of a 900-page length.
 
 ---
