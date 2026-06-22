@@ -163,15 +163,8 @@ The handwriting app already loads page-at-a-time and never the whole notebook; b
   `PREFETCH_AHEAD`/`PREFETCH_BEHIND` neighbours inside `requestIdleCallback`, skipping while
   `appBusy()`; `evictDistantPages` nulls out-of-window content in a true idle slice, never evicting a
   dirty item (`editor-controller.js`). For books the unit becomes the **section**.
-- **Section sizing (the one knob that matters):** a section is a **chapter**, bounded by content
-  length so one Blink layout/pagination pass stays cheap and resident RAM is bounded:
-  - **Max ≈ 40 KB of section HTML** (~6–10k words, ~15–30 paginated columns). Above this the importer
-    **splits** at a safe top-level block boundary (ids stable across the split).
-  - **Min ≈ 4 KB:** a chapter/fragment below this is **merged** with its neighbour — avoids lots of
-    tiny file loads and section-boundary page turns.
-  - Net: most chapters = one section; only very long chapters split; tiny front-matter merges. **Do
-    not over-split** — fewer, bounded files = fewer loads and smoother reading; many tiny files only
-    add I/O round-trips and section-boundary friction. (Splitting helps *only* to stay under the cap.)
+- **Section sizing — see §6.4 for the importer policy.** One section = one chapter, bounded so a
+  single Blink layout/pagination pass stays cheap and resident RAM is bounded.
 - **Net:** working set ≈ one section + any open note, independent of a 900-page length.
 
 ---
@@ -192,8 +185,7 @@ needs text extraction/OCR.)
    - **Normalise CSS** onto `styles/book.css`; drop embedded fonts by default (e-ink legibility/size).
    - **Assign stable anchor ids** (deterministic per section) so highlight/note ranges survive
      re-import (CFI-style).
-   - **Split oversized sections** at safe block boundaries above a size threshold (keeps layout cheap),
-     ids stable across the split.
+   - **Chunk into sections — the sizing policy (§6.4).** Applies to the EPUB/PDF/other importer.
    - **Rewrite refs** — image `src` → `assets/<hash>`; internal `href` → `sectionId#anchor`; external
      links flagged; broken refs reported.
 5. **Transcode assets** — raster → WebP (PNG/JPEG fallback), downscaled ≤ ~1264 px, quantised; keep
@@ -211,6 +203,37 @@ popups (a natural fit with the note UI); media overlays / A-V (out of scope v1).
 companion prompt (`sample-book-authoring-prompt.md`) is the manual stand-in until the importer exists.
 
 ---
+
+### 6.4 Section chunking policy (the importer's sizing rule)
+The single knob that decides reader performance. Measured on **section HTML bytes** (markup + text);
+**images don't count** — they're separate asset files referenced by `src`, decoded/evicted by the
+browser. Industry anchors: **Calibre splits flows at 260 KB** (Adobe Digital Editions limit), and the
+**EPUB ~300 KB** guideline comes from e-readers with limited memory/CPU — exactly this device.
+
+- **Unit:** one **chapter = one section**. Start from the source's natural boundaries (EPUB spine
+  items / TOC; PDF outline/bookmarks/heading detection).
+- **MAX — split above ≈ 250 KB.** Split at the nearest **safe top-level block boundary** (between
+  sibling block elements — never mid-paragraph, mid-`figure`, or mid-`<kal-*>`), recursively, until
+  every piece ≤ 250 KB.
+- **TARGET band ≈ 20–150 KB.** Aim here so first paint and a font-size/face **re-pagination of the
+  current section** stay snappy; 250 KB is the ceiling, not the goal.
+- **MIN — merge below ≈ 2 KB** (under ~one screen of text) into the adjacent section, **except** a
+  structurally-distinct short unit (cover, title page, part divider) which may stand alone.
+- **Don't over-split.** Many tiny files only add I/O round-trips and a load-flash at every section
+  edge, with **no rendering benefit**. Split *only* to stay under the MAX; merge *only* to clear the MIN.
+- **Stable ids across split/merge.** Heading/paragraph/element ids must be deterministic per source
+  position so highlight/note ranges (CFI-style anchors, §4) re-anchor across re-imports.
+- **PDF caveat:** no semantic chapters — detect boundaries from the outline/bookmarks/heading sizes,
+  then apply the same MIN/MAX; where structure is ambiguous, prefer **fewer larger sections within the
+  MAX** over many guessed boundaries.
+
+**Why (refs):** [Calibre 260 KB default](https://manual.calibre-ebook.com/conversion.html);
+[EPUB ~300 KB = limited-hardware guideline, now a perf best-practice not a hard limit](https://idpf.org/forum/topic-917);
+a too-large chunk forces laying out the whole chunk (deep links / page counting) → a substantial pause,
+and one-chapter-per-file is the long-standing standard ([geekrant](https://www.geekrant.org/2012/10/26/epub-htmlxhtml-or-chapter-upper-file-size-limit-is-300kb/),
+[MobileRead](https://www.mobileread.com/forums/showthread.php?t=277355)). This device adds one more
+reason for the ceiling: the reader **paginates the whole section up front** (CSS-multicolumn column
+count), so layout cost tracks section size.
 
 ## 7. Build sequence
 
