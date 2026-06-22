@@ -411,6 +411,7 @@ const Reader = {
     const L = Math.round((r.left + pad) * dpr), T = Math.round((r.top + pad) * dpr)
     const R = Math.round((r.right - pad) * dpr), B = Math.round((r.bottom - pad) * dpr)
     window._noteSketch = { w: R - L, h: B - T }
+    window._inkHandler = this   // the notebook reader handles this box's strokes
     Bridge.attachInkBox(L, T, R, B)
     Bridge.setInkStyle(3 * dpr, '#000000')
   },
@@ -470,16 +471,16 @@ const Reader = {
   }
 }
 
-// Daemon flush finished after a detach. A full-page/window toggle re-attaches at the new size; a real
-// close finalizes/saves.
+// Daemon ink-box flush finished after a detach. A full-page/window toggle re-attaches at the new size;
+// a real close finalizes/saves. Routed to whichever handler opened the box (notebook reader or book).
 window.onNoteFlushed = function() {
-  if (!window.Reader) return
-  if (Reader._reattaching) {
-    Reader._reattaching = false
-    requestAnimationFrame(function() { requestAnimationFrame(function() { Reader.attachNoteBox() }) })
+  const h = window._inkHandler; if (!h) return
+  if (h._reattaching) {
+    h._reattaching = false
+    requestAnimationFrame(function() { requestAnimationFrame(function() { h.attachNoteBox() }) })
     return
   }
-  Reader.finalizeNote()
+  h.finalizeNote()
 }
 
 // ---- selection / highlight helpers ----

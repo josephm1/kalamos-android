@@ -205,6 +205,18 @@ class AndroidBridge(
         return storageManager.getNotebookAssetDataUrl(notebookId, relPath)
     }
 
+    /** Read a book/sidecar text file (manifest/section/css/json) under the notebook dir. */
+    @JavascriptInterface
+    fun getBookFile(notebookId: String, relPath: String): String {
+        return storageManager.getBookFile(notebookId, relPath) ?: ""
+    }
+
+    /** Write a mutable sidecar text file (highlights/notes) under the notebook dir. */
+    @JavascriptInterface
+    fun saveBookFile(notebookId: String, relPath: String, content: String): String {
+        return if (storageManager.saveBookFile(notebookId, relPath, content)) "ok" else "error"
+    }
+
     /** Restrict the daemon's writing area: pen above [topPx] (surface px) is ignored. JS owns the
      *  measurement (the toolbar strip), so the website controls the pen-input region. */
     @JavascriptInterface

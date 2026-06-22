@@ -168,6 +168,14 @@ const Bridge = {
     try { return AndroidBridge.getNotebookAsset(notebookId, relPath) } catch (e) { console.warn('Bridge.getNotebookAsset error:', e); return '' }
   },
 
+  getBookFile(notebookId, relPath) {
+    try { return AndroidBridge.getBookFile(notebookId, relPath) } catch (e) { console.warn('Bridge.getBookFile error:', e); return '' }
+  },
+
+  saveBookFile(notebookId, relPath, content) {
+    try { return AndroidBridge.saveBookFile(notebookId, relPath, content) } catch (e) { console.warn('Bridge.saveBookFile error:', e); return 'error' }
+  },
+
   setWritingTop(topPx) {
     try {
       AndroidBridge.setWritingTop(topPx)

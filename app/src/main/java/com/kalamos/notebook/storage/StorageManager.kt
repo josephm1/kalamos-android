@@ -316,6 +316,28 @@ class StorageManager(private val context: Context) {
         return notebookDir(notebookId).absolutePath
     }
 
+    /** Read a text file under the notebook dir (book manifest/section/css/sidecar JSON). [relPath] is
+     *  kept inside the dir (no .. traversal). null if missing/unreadable. */
+    fun getBookFile(notebookId: String, relPath: String): String? {
+        return try {
+            val dir = notebookDir(notebookId).canonicalFile
+            val f = File(dir, relPath).canonicalFile
+            if (!f.path.startsWith(dir.path) || !f.isFile) return null
+            f.readText()
+        } catch (e: Exception) { null }
+    }
+
+    /** Write a text file under the notebook dir (mutable sidecar — highlights/notes), atomically. */
+    fun saveBookFile(notebookId: String, relPath: String, content: String): Boolean {
+        return try {
+            val dir = notebookDir(notebookId).canonicalFile
+            val f = File(dir, relPath).canonicalFile
+            if (!f.path.startsWith(dir.path)) return false
+            f.parentFile?.mkdirs()
+            atomicWrite(f, content.toByteArray())
+        } catch (e: Exception) { false }
+    }
+
     /** A notebook asset (image) as a base64 data: URL for the WebView content layer. [relPath] is
      *  relative to the notebook dir (e.g. "assets/koch.jpg"); kept inside the notebook dir (no ..
      *  traversal). "" if missing/unreadable. */

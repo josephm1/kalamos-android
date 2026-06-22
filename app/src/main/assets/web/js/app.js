@@ -15,6 +15,12 @@ const App = {
   },
 
   showEditor(notebookId) {
+    // Interactive-book notebooks (meta has bookRef) open in the book reader.
+    if (window.BookReader) {
+      let bm = null
+      try { bm = JSON.parse(Bridge.loadMeta(notebookId)) } catch (e) {}
+      if (BookReader.isBook(bm)) { BookReader.open(bm); return }
+    }
     // Interactive-format notebooks (pages carry blocks) open in interactive reading mode, not the
     // ink editor. Detect via the (preloaded) meta without disturbing the plain-notebook path.
     if (window.Reader) {
@@ -84,7 +90,10 @@ const App = {
 
   // Android hardware/gesture back, routed from native.
   onAndroidBack() {
-    if (this.current === 'reader') {
+    if (this.current === 'book') {
+      if (window.BookReader && BookReader._inkWrap) { BookReader.closeInkBox(); return }   // close an open note first
+      BookReader.close()
+    } else if (this.current === 'reader') {
       if (window.Reader && Reader._noteWrap) { Reader.closeNote(); return }   // close an open note first
       Reader.close()
     } else if (this.current === 'editor') this.showLibrary()
@@ -93,7 +102,8 @@ const App = {
 
   // Hardware page-turn buttons (dir = 'up' | 'down'), routed from native.
   onPageKey(dir) {
-    if (this.current === 'reader') { if (dir === 'down') Reader.next(); else Reader.prev() }
+    if (this.current === 'book') { if (dir === 'down') BookReader.nextPage(); else BookReader.prevPage() }
+    else if (this.current === 'reader') { if (dir === 'down') Reader.next(); else Reader.prev() }
     else if (this.current === 'editor') { if (typeof editorPageTurn === 'function') editorPageTurn(dir) }
     else { if (typeof libraryPageTurn === 'function') libraryPageTurn(dir) }
   },

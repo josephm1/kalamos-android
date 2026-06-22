@@ -38,6 +38,8 @@ class BridgeRouter {
     @JavascriptInterface fun skipWakeRefresh() { delegate?.skipWakeRefresh() }
     @JavascriptInterface fun clearContent() { delegate?.clearContent() }
     @JavascriptInterface fun getNotebookAsset(notebookId: String, relPath: String): String = delegate?.getNotebookAsset(notebookId, relPath) ?: ""
+    @JavascriptInterface fun getBookFile(notebookId: String, relPath: String): String = delegate?.getBookFile(notebookId, relPath) ?: ""
+    @JavascriptInterface fun saveBookFile(notebookId: String, relPath: String, content: String): String = delegate?.saveBookFile(notebookId, relPath, content) ?: "error"
     @JavascriptInterface fun setWritingTop(topPx: Int) { delegate?.setWritingTop(topPx) }
     @JavascriptInterface fun setWritingExclusion(left: Int, top: Int, right: Int, bottom: Int) { delegate?.setWritingExclusion(left, top, right, bottom) }
     @JavascriptInterface fun setWritingBounds(left: Int, top: Int, right: Int, bottom: Int) { delegate?.setWritingBounds(left, top, right, bottom) }
