@@ -114,6 +114,7 @@ const BookReader = {
     this._ind.textContent = (this.sec + 1) + '/' + this.manifest.spine.length
     this._navlbl.textContent = (this.page + 1) + ' / ' + this.pages
     this.applyHighlights()
+    this.updateInlineInk()   // attach/detach the daemon to an inline <kal-ink> on this page
   },
 
   nextPage() {
@@ -131,8 +132,28 @@ const BookReader = {
     Array.prototype.forEach.call(imgs, function(img) {
       const url = Bridge.getNotebookAsset(self.nbId, img.getAttribute('src'))
       if (url) img.src = url; else img.alt = '(image)'
+      img.style.cursor = 'pointer'
       img.addEventListener('load', function() { self.paginate() })
+      img.addEventListener('click', function(e) { e.stopPropagation(); self.openImageViewer(img.src) })
     })
+  },
+
+  // Tap an image → full-screen viewer, as large as fits, with a rotate button (e.g. view a landscape
+  // image rotated to fill the portrait screen). Tap/pen/eraser all fire 'click'.
+  openImageViewer(src) {
+    const ov = el('div', 'iv-overlay')
+    const img = document.createElement('img'); img.className = 'iv-img'; img.src = src
+    img.addEventListener('click', function(e) { e.stopPropagation() })
+    ov.appendChild(img)
+    let rot = 0
+    const bar = el('div', 'iv-bar')
+    const rotate = el('button', 'rd-btn', '⟳ Rotate')
+    rotate.addEventListener('click', function(e) { e.stopPropagation(); rot = (rot + 90) % 360; img.className = 'iv-img r' + rot })
+    const close = el('button', 'rd-btn', '✕ Close')
+    close.addEventListener('click', function(e) { e.stopPropagation(); ov.remove() })
+    bar.appendChild(rotate); bar.appendChild(close); ov.appendChild(bar)
+    ov.addEventListener('click', function() { ov.remove() })   // tap the backdrop to close
+    this.view().appendChild(ov)
   },
 
   // upgrade <kal-mcq>/<kal-anim>/<kal-ink> custom tags to widgets
@@ -198,17 +219,39 @@ const BookReader = {
     elm.replaceWith(wrap)
   },
 
-  // inline pen-input box → opens the daemon ink box; strokes saved to a sidecar note file keyed by id
+  // inline pen-input box: an in-flow outlined area. When the reader reaches the column it's on, the
+  // daemon attaches to it (draw directly in the outline); pen-away detaches. Strokes → a sidecar file.
   upgradeInk(elm) {
-    const self = this
     const id = elm.getAttribute('id'); const h = parseInt(elm.getAttribute('height') || '300', 10)
     const wrap = el('div', 'rd-draw')
     if (elm.getAttribute('label')) wrap.appendChild(el('div', 'rd-draw-label', elm.getAttribute('label')))
-    const box = el('div', 'rd-draw-box'); box.style.height = h + 'px'
-    box.appendChild(el('span', 'hint', '✎ tap to draw'))
-    box.addEventListener('click', function() { self.openInkBox({ file: 'sidecar/ink/' + self.sectionId() + '-' + id + '.json' }) })
+    const box = el('div', 'bk-ink'); box.style.height = h + 'px'
+    box.dataset.file = 'sidecar/ink/' + this.sectionId() + '-' + id + '.json'
+    box.appendChild(el('span', 'bk-ink-hint', '✎ draw here'))
     wrap.appendChild(box)
     elm.replaceWith(wrap)
+  },
+
+  // Attach/detach the daemon to an inline <kal-ink> box as it scrolls into / out of the current page.
+  updateInlineInk() {
+    if (!this._flow || this._inkWrap) return   // (a sticky-note modal owns the surface — skip)
+    const cr = this._content.getBoundingClientRect()
+    let visible = null
+    Array.prototype.forEach.call(this._flow.querySelectorAll('.bk-ink'), function(b) {
+      const r = b.getBoundingClientRect()
+      if (r.width > 10 && r.left < cr.right - 30 && r.right > cr.left + 30) visible = b
+    })
+    if (visible) { if (!this._ink || this._ink.el !== visible) this.openInlineInk(visible) }
+    else if (this._ink && this._ink.inline) this.closeInkBox()
+  },
+
+  openInlineInk(box) {
+    const self = this
+    let strokes = []
+    try { const j = JSON.parse(Bridge.getBookFile(this.nbId, box.dataset.file) || '{}'); if (Array.isArray(j.strokes) && (!j.strokes.length || Array.isArray(j.strokes[0]))) strokes = j.strokes } catch (e) {}
+    this._ink = { el: box, file: box.dataset.file, anchor: null, strokes: strokes, inline: true, full: false }
+    this._inkBox = box; this._inkWrap = null
+    requestAnimationFrame(function() { self.attachNoteBox() })
   },
 
   savePosition() {
@@ -257,6 +300,7 @@ const BookReader = {
     const upd = function(x, y) { const end = caretRange(x, y); if (!startCaret || !end) return; const r = snapRangeToWords(orderedRange(startCaret, end) || collapsedRange(startCaret)); if (r) { self._sel = r; self.clearSelOverlay(); drawRangeInto(self.selLayer, r, 'rd-sel') } }
     flow.addEventListener('pointerdown', function(e) {
       if (!isHighlightPointer(e)) return
+      if (e.target && e.target.tagName === 'IMG') return   // image taps open the viewer, not a selection
       self.hidePopup(); self.clearSelOverlay(); startCaret = caretRange(e.clientX, e.clientY); moved = false; sx = e.clientX; sy = e.clientY; self._sel = null
       upd(e.clientX, e.clientY); clearTimeout(lp)
       lp = setTimeout(function() { const h = self.hitHighlight(sx, sy); if (h) { startCaret = null; self.clearSelOverlay(); self.showHlMenu(h, sx, sy) } }, 500)
@@ -356,7 +400,12 @@ const BookReader = {
     Bridge.renderInk(JSON.stringify(out))
   },
   saveInk() { if (this._ink) Bridge.saveBookFile(this.nbId, this._ink.file, JSON.stringify({ anchor: this._ink.anchor, strokes: this._ink.strokes })) },
-  closeInkBox() { if (!this._inkWrap) return; this._inkWrap.remove(); this._inkWrap = null; this._inkBox = null; Bridge.detachInkBox() },
+  closeInkBox() {
+    const had = !!this._ink || !!this._inkWrap
+    if (this._inkWrap) { this._inkWrap.remove(); this._inkWrap = null }
+    this._inkBox = null
+    if (had) Bridge.detachInkBox()   // flush → onNoteFlushed → finalizeNote (saves + clears _ink)
+  },
   finalizeNote() {
     this.saveInk(); this._ink = null; window._noteSketch = null
     // a note may have just gained its first strokes → refresh markers

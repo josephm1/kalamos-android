@@ -95,6 +95,21 @@
 .bk-flow img { max-height: calc(var(--bk-colh, 80vh) - 56px); object-fit: contain; }
 .bk-flow h1, .bk-flow h2, .bk-flow h3 { break-after: avoid; }
 .bk-flow blockquote, .bk-flow kal-mcq, .bk-flow .rd-mcq, .bk-flow .rd-draw, .bk-flow .rd-anim { break-inside: avoid; }
+/* inline <kal-ink> box: the daemon draws directly in this outline when its page is reached */
+.bk-ink { position: relative; border: 2.5px solid #000; border-radius: 8px; background: #fff;
+  break-inside: avoid; margin: 6px 0; }
+.bk-ink-hint { position: absolute; right: 10px; top: 8px; font-family: system-ui, sans-serif;
+  font-size: 12px; font-weight: 600; color: #000; }
+
+/* full-screen image viewer (tap an image) with rotate */
+.iv-overlay { position: fixed; inset: 0; z-index: 70; background: #fff; display: flex;
+  align-items: center; justify-content: center; }
+.iv-img { max-width: 98vw; max-height: 92vh; object-fit: contain; transition: transform .12s; }
+.iv-img.r90, .iv-img.r270 { max-width: 92vh; max-height: 98vw; }
+.iv-img.r90 { transform: rotate(90deg); }
+.iv-img.r180 { transform: rotate(180deg); }
+.iv-img.r270 { transform: rotate(270deg); }
+.iv-bar { position: absolute; bottom: 18px; right: 18px; display: flex; gap: 12px; }
 
 /* ============== Interactive reading mode (#reader-view, the live WebView layer) ============== */
 #reader-view {
