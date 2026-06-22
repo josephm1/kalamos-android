@@ -84,8 +84,10 @@ const App = {
 
   // Android hardware/gesture back, routed from native.
   onAndroidBack() {
-    if (this.current === 'reader') Reader.close()
-    else if (this.current === 'editor') this.showLibrary()
+    if (this.current === 'reader') {
+      if (window.Reader && Reader._noteWrap) { Reader.closeNote(); return }   // close an open note first
+      Reader.close()
+    } else if (this.current === 'editor') this.showLibrary()
     else Bridge.exitApp()
   },
 

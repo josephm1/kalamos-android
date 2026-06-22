@@ -115,6 +115,17 @@ class AndroidBridge(
         inkManager?.detach()
     }
 
+    /** Sticky-note partial mode: attach the daemon to just the note box (surface px) so only it refreshes. */
+    @JavascriptInterface
+    fun attachInkBox(left: Int, top: Int, right: Int, bottom: Int) {
+        inkManager?.attachInkBox(left, top, right, bottom)
+    }
+
+    @JavascriptInterface
+    fun detachInkBox() {
+        inkManager?.detachInkBox()
+    }
+
     @JavascriptInterface
     fun setInkStyle(widthPx: Float, colorHex: String) {
         inkManager?.setStyle(widthPx, colorHex)

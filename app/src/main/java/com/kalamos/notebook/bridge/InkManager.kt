@@ -64,6 +64,39 @@ class InkManager(
         }
     }
 
+    /** Sticky-note PARTIAL mode: resize the ink surface to just the note box [l,t,r,b] (surface px)
+     *  and attach the daemon there. Only that small region is a surface, so only it refreshes — the
+     *  WebView reader shows through everywhere else (no full-screen flash). The box surface's origin is
+     *  (0,0) = the box top-left, so strokes come back in box-local coords. */
+    fun attachInkBox(l: Int, t: Int, r: Int, b: Int) {
+        mainHandler.post {
+            val w = r - l; val h = b - t
+            if (w <= 0 || h <= 0) return@post
+            val lp = (inkSurfaceView.layoutParams as? android.widget.FrameLayout.LayoutParams)
+                ?: android.widget.FrameLayout.LayoutParams(w, h)
+            lp.width = w; lp.height = h; lp.leftMargin = l; lp.topMargin = t
+            lp.gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            inkSurfaceView.layoutParams = lp
+            inkSurfaceView.visibility = android.view.View.VISIBLE
+            // attach the daemon to the (resized) box surface; limit = the whole box
+            attach(Rect(0, 0, w, h))
+        }
+    }
+
+    /** Leave sticky-note partial mode: detach, hide the surface, restore it to full screen. */
+    fun detachInkBox() {
+        mainHandler.post {
+            detach()   // flushes pending strokes → onStrokesBatch → Reader.onNoteStrokes (must land first)
+            postToWeb("window.onNoteFlushed && window.onNoteFlushed()")   // then the reader finalizes/saves
+            inkSurfaceView.visibility = android.view.View.GONE
+            val lp = (inkSurfaceView.layoutParams as? android.widget.FrameLayout.LayoutParams) ?: return@post
+            lp.width = android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            lp.height = android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            lp.leftMargin = 0; lp.topMargin = 0
+            inkSurfaceView.layoutParams = lp
+        }
+    }
+
     /** Web layer tells us it's erasing (button mode or stylus eraser). The daemon paints no ink so
      *  the pen tip erases via the web layer; we also drop any daemon stroke as a backstop. */
     fun setErasing(active: Boolean) {

@@ -24,6 +24,8 @@ class BridgeRouter {
     @JavascriptInterface fun deleteNotebook(notebookId: String): String = delegate?.deleteNotebook(notebookId) ?: "error: no delegate"
     @JavascriptInterface fun attachInk(left: Int, top: Int, right: Int, bottom: Int): Boolean = delegate?.attachInk(left, top, right, bottom) ?: false
     @JavascriptInterface fun detachInk() { delegate?.detachInk() }
+    @JavascriptInterface fun attachInkBox(left: Int, top: Int, right: Int, bottom: Int) { delegate?.attachInkBox(left, top, right, bottom) }
+    @JavascriptInterface fun detachInkBox() { delegate?.detachInkBox() }
     @JavascriptInterface fun setInkStyle(widthPx: Float, colorHex: String) { delegate?.setInkStyle(widthPx, colorHex) }
     @JavascriptInterface fun setInkEnabled(enabled: Boolean) { delegate?.setInkEnabled(enabled) }
     @JavascriptInterface fun renderInk(json: String) { delegate?.renderInk(json) }

@@ -159,22 +159,16 @@
 .rd-pop-btn:last-child { border-right: none; }
 .rd-pop-btn:active { background: #000; color: #fff; }
 
-/* sticky-note overlay: a centred Post-it with its own drawing canvas, overlaying the reader (the page
-   + highlight stay visible behind it). Default small; .full fills the screen with a shrink button. */
+/* sticky-note overlay: a centred Post-it; the page + highlight stay visible behind it. The .rd-note-box
+   reserves the drawing area — the daemon ink surface is resized to cover exactly that box (partial
+   refresh). Default small; .full fills the screen. */
 .rd-note-wrap { position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center; }
-.rd-note-card { position: relative; width: 480px; max-width: 92%; background: #fffdf0; border: 3px solid #000;
-  border-radius: 12px; box-shadow: 0 6px 0 rgba(0,0,0,0.3); padding: 12px; }
-.rd-note-card.full { position: absolute; inset: 6px; width: auto; max-width: none; padding: 6px; box-shadow: none; }
-.rd-note-box { position: relative; height: 320px; border: 2.5px solid #000; border-radius: 8px;
-  background: #fff; overflow: hidden; touch-action: none; }
-.rd-note-card.full .rd-note-box { position: absolute; inset: 6px; height: auto; }
-.rd-sketch-canvas { position: absolute; inset: 0; touch-action: none; }
-.rd-note-ctl { margin-top: 10px; display: flex; gap: 14px; justify-content: center; }
-.rd-note-card.full .rd-note-ctl { display: none; }
-.rd-note-shrink { display: none; position: absolute; right: 18px; bottom: 18px; z-index: 5;
-  width: 46px; height: 46px; border: 2.5px solid #000; border-radius: 10px; background: #fff;
-  color: #000; font-size: 22px; line-height: 1; }
-.rd-note-card.full .rd-note-shrink { display: block; }
+.rd-note-card { display: flex; flex-direction: column; width: 480px; max-width: 92%; background: #fffdf0;
+  border: 3px solid #000; border-radius: 12px; box-shadow: 0 6px 0 rgba(0,0,0,0.3); padding: 12px; }
+.rd-note-card.full { position: absolute; inset: 6px; width: auto; max-width: none; box-shadow: none; }
+.rd-note-box { height: 320px; border: 2px solid #000; border-radius: 8px; background: #fff; }
+.rd-note-card.full .rd-note-box { flex: 1 1 auto; height: auto; }
+.rd-note-ctl { margin-top: 10px; display: flex; gap: 14px; justify-content: center; flex: 0 0 auto; }
 
 .rd-draw { margin: 18px 0; }
 .rd-draw-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }

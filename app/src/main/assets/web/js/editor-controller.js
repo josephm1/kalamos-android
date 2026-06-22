@@ -185,8 +185,11 @@ function detachInk() {
 // of point-arrays in surface (physical) px: [[{x,y},...], ...]. We convert to page/CSS coords,
 // append to the notebook model, and save.
 window.onStrokesBatch = function(strokes) {
-  if (!notebook || !strokes || strokes.length === 0) return
-  const noteBuf = window._sketchNoteStrokes   // sticky-note sketch → strokes go to the note, not the page
+  if (!strokes || strokes.length === 0) return
+  // Sticky-note partial sketch (daemon attached to just the note box) → strokes go to the reader's note.
+  if (window._noteSketch && window.Reader) { Reader.onNoteStrokes(strokes); return }
+  if (!notebook) return
+  const noteBuf = window._sketchNoteStrokes   // (legacy editor note path; unused by the box approach)
   if (!noteBuf) ensurePageLoaded(currentPageIndex)   // lazy: the page being written to needs its array
   const page = currentPage()
   const target = noteBuf || (page && page.strokes)
@@ -241,6 +244,8 @@ window.onInkControllerReady = function(available) {
     }, 2500)
   } else {
     if (daemonErrorTimer) { clearTimeout(daemonErrorTimer); daemonErrorTimer = null }
+    // Sticky-note box: the surface is just the note box — render the note's strokes into it, nothing else.
+    if (window._noteSketch && window.Reader) { Reader.renderNoteStrokes(); return }
     // Surface is ready — paint the current page's existing strokes onto the native surface.
     syncNativePage()
     renderPageContent()   // bake any interactive-format content under the ink

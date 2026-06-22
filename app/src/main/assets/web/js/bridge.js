@@ -83,6 +83,14 @@ const Bridge = {
     }
   },
 
+  attachInkBox(left, top, right, bottom) {
+    try { AndroidBridge.attachInkBox(left, top, right, bottom) } catch (e) { console.warn('Bridge.attachInkBox error:', e) }
+  },
+
+  detachInkBox() {
+    try { AndroidBridge.detachInkBox() } catch (e) { console.warn('Bridge.detachInkBox error:', e) }
+  },
+
   setInkStyle(widthPx, colorHex) {
     try {
       AndroidBridge.setInkStyle(widthPx, colorHex)

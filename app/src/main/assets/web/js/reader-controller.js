@@ -27,6 +27,7 @@ const Reader = {
   },
 
   close() {
+    if (this._noteWrap) this.closeNote()   // detach the note's ink surface first (else it obscures the library)
     document.getElementById('reader-view').style.display = 'none'
     document.getElementById('library-view').style.display = 'flex'
     App.current = 'library'
@@ -367,12 +368,118 @@ const Reader = {
     try { Storage.saveNotebookDirty(this.nb) } catch (e) { console.warn('Reader.save', e) }
   },
 
-  // Open a sticky note: the DAEMON low-latency sketch (turned on for the note, off on close),
-  // confined to a centred Post-it box, with the page content baked behind it. Each note keeps its own
-  // strokes (block.hl[hi].note.strokes), so notes on a page are independent. Back returns to the reader.
+  // Open a sticky note WITHOUT switching to the editor: the reader stays visible, and the daemon ink
+  // surface is resized to JUST the note box (Bridge.attachInkBox). So only that small region composites
+  // / refreshes — no full-screen flash — while the page + highlight stay visible around it. Low-latency
+  // daemon ink; strokes stored per-note (normalized) in block.hl[hi].note.strokes.
   openStickyNote(bi, hi) {
-    App.openSketch(this.nb.notebookId, this.page, { modal: true, note: { bi: bi, hi: hi } })
+    this.closeNote()
+    const self = this
+    const hl = this.nb.pages[this.page].blocks[bi].hl[hi]
+    if (!hl.note) hl.note = {}
+    if (!Array.isArray(hl.note.strokes) || (hl.note.strokes.length && hl.note.strokes[0].points)) hl.note.strokes = []
+    this._note = { bi: bi, hi: hi, full: false }
+
+    const wrap = el('div', 'rd-note-wrap')
+    const card = el('div', 'rd-note-card')
+    const box = el('div', 'rd-note-box')   // reserves the drawing area; the ink surface covers it
+    card.appendChild(box)
+    const ctl = el('div', 'rd-note-ctl')
+    const done = el('button', 'rd-btn', '✓ Done')
+    const full = el('button', 'rd-btn', '⛶ Full page')
+    ctl.appendChild(done); ctl.appendChild(full)
+    card.appendChild(ctl)
+    wrap.appendChild(card)
+    document.getElementById('reader-view').appendChild(wrap)
+    this._noteWrap = wrap; this._noteBox = box
+
+    done.addEventListener('click', function() { self.closeNote() })
+    full.addEventListener('click', function() {
+      self._note.full = !self._note.full
+      card.classList.toggle('full', self._note.full)
+      full.textContent = self._note.full ? '⊟ Window' : '⛶ Full page'
+      self.reattachNoteBox()
+    })
+    requestAnimationFrame(function() { self.attachNoteBox() })
+  },
+
+  attachNoteBox() {
+    const box = this._noteBox; if (!box) return
+    const r = box.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
+    const pad = 3   // CSS px inset so the box's own border stays visible around the ink surface
+    const L = Math.round((r.left + pad) * dpr), T = Math.round((r.top + pad) * dpr)
+    const R = Math.round((r.right - pad) * dpr), B = Math.round((r.bottom - pad) * dpr)
+    window._noteSketch = { w: R - L, h: B - T }
+    Bridge.attachInkBox(L, T, R, B)
+    Bridge.setInkStyle(3 * dpr, '#000000')
+  },
+
+  // Full-page / window toggle: detach + re-attach at the new box size. The async flush re-attaches
+  // (it must NOT finalize — that's only for closing) so the strokes survive the toggle.
+  reattachNoteBox() {
+    this._reattaching = true
+    Bridge.detachInkBox()   // flushes current strokes (→ onNoteStrokes), then onNoteFlushed re-attaches
+  },
+
+  // Close: hide the overlay + detach. The daemon flush is ASYNC, so we keep the note context alive
+  // until window.onNoteFlushed fires (after the strokes have landed), then finalize/save.
+  closeNote() {
+    if (!this._noteWrap) return
+    this._noteWrap.remove(); this._noteWrap = null; this._noteBox = null
+    Bridge.detachInkBox()
+  },
+
+  finalizeNote() {
+    this._note = null
+    window._noteSketch = null
+    this.save(); this.renderHighlights()
+  },
+
+  // Daemon strokes (box-local surface px) → point arrays stored per-note, normalized by WIDTH for both
+  // axes so the drawing scales 1:1 (uniform) and never stretches to the box's aspect. The surface
+  // already shows them live; we just persist them.
+  onNoteStrokes(strokes) {
+    if (!this._note || !window._noteSketch) return
+    const hl = this.nb.pages[this.page].blocks[this._note.bi].hl[this._note.hi]
+    if (!Array.isArray(hl.note.strokes)) hl.note.strokes = []
+    const w = window._noteSketch.w || 1
+    for (let s = 0; s < strokes.length; s++) {
+      const pts = strokes[s]; if (!pts || !pts.length) continue
+      const arr = []
+      for (let i = 0; i < pts.length; i++) arr.push({ x: pts[i][0] / w, y: pts[i][1] / w })
+      hl.note.strokes.push(arr)
+    }
+    this.save()
+  },
+
+  // Render the note's stored strokes onto the (fresh) box surface — uniform scaling (×width).
+  renderNoteStrokes() {
+    const ns = window._noteSketch; if (!ns || !this._note) return
+    const hl = this.nb.pages[this.page].blocks[this._note.bi].hl[this._note.hi]
+    const strokes = Array.isArray(hl.note.strokes) ? hl.note.strokes : []
+    const dpr = window.devicePixelRatio || 1
+    const out = { t: 'blank', sp: 0, mg: 0, dpr: dpr, b: [0, 0, ns.w, ns.h], s: [] }
+    for (let s = 0; s < strokes.length; s++) {
+      const st = strokes[s]; if (!st || !st.length || st.points) continue
+      const p = []
+      for (let i = 0; i < st.length; i++) p.push([Math.round(st[i].x * ns.w), Math.round(st[i].y * ns.w)])
+      out.s.push({ w: 3 * dpr, c: '#000000', p: p })
+    }
+    Bridge.renderInk(JSON.stringify(out))
   }
+}
+
+// Daemon flush finished after a detach. A full-page/window toggle re-attaches at the new size; a real
+// close finalizes/saves.
+window.onNoteFlushed = function() {
+  if (!window.Reader) return
+  if (Reader._reattaching) {
+    Reader._reattaching = false
+    requestAnimationFrame(function() { requestAnimationFrame(function() { Reader.attachNoteBox() }) })
+    return
+  }
+  Reader.finalizeNote()
 }
 
 // ---- selection / highlight helpers ----
