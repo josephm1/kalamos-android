@@ -205,35 +205,41 @@ companion prompt (`sample-book-authoring-prompt.md`) is the manual stand-in unti
 ---
 
 ### 6.4 Section chunking policy (the importer's sizing rule)
-The single knob that decides reader performance. Measured on **section HTML bytes** (markup + text);
-**images don't count** — they're separate asset files referenced by `src`, decoded/evicted by the
-browser. Industry anchors: **Calibre splits flows at 260 KB** (Adobe Digital Editions limit), and the
-**EPUB ~300 KB** guideline comes from e-readers with limited memory/CPU — exactly this device.
+**There is only ONE real knob: a maximum.** The literature has a *max* (Calibre 260 KB, EPUB
+~300 KB — both from limited-memory/CPU e-readers, i.e. this device) but **no minimum** — "one chapter
+per file" is an *organisational* convention, not a performance floor, and consolidating small files is
+explicitly recognised as *better* for navigation and device performance. So we **don't** set a floor;
+we **coalesce small chapters toward the max**, which removes tiny files without an arbitrary minimum.
 
-- **Unit:** one **chapter = one section**. Start from the source's natural boundaries (EPUB spine
-  items / TOC; PDF outline/bookmarks/heading detection).
-- **MAX — split above ≈ 250 KB.** Split at the nearest **safe top-level block boundary** (between
-  sibling block elements — never mid-paragraph, mid-`figure`, or mid-`<kal-*>`), recursively, until
-  every piece ≤ 250 KB.
-- **TARGET band ≈ 20–150 KB.** Aim here so first paint and a font-size/face **re-pagination of the
-  current section** stay snappy; 250 KB is the ceiling, not the goal.
-- **MIN — merge below ≈ 2 KB** (under ~one screen of text) into the adjacent section, **except** a
-  structurally-distinct short unit (cover, title page, part divider) which may stand alone.
-- **Don't over-split.** Many tiny files only add I/O round-trips and a load-flash at every section
-  edge, with **no rendering benefit**. Split *only* to stay under the MAX; merge *only* to clear the MIN.
-- **Stable ids across split/merge.** Heading/paragraph/element ids must be deterministic per source
-  position so highlight/note ranges (CFI-style anchors, §4) re-anchor across re-imports.
-- **PDF caveat:** no semantic chapters — detect boundaries from the outline/bookmarks/heading sizes,
-  then apply the same MIN/MAX; where structure is ambiguous, prefer **fewer larger sections within the
-  MAX** over many guessed boundaries.
+Measured on **section HTML bytes** (markup + text); **images don't count** (separate asset files the
+browser decodes/evicts).
 
-**Why (refs):** [Calibre 260 KB default](https://manual.calibre-ebook.com/conversion.html);
-[EPUB ~300 KB = limited-hardware guideline, now a perf best-practice not a hard limit](https://idpf.org/forum/topic-917);
-a too-large chunk forces laying out the whole chunk (deep links / page counting) → a substantial pause,
-and one-chapter-per-file is the long-standing standard ([geekrant](https://www.geekrant.org/2012/10/26/epub-htmlxhtml-or-chapter-upper-file-size-limit-is-300kb/),
-[MobileRead](https://www.mobileread.com/forums/showthread.php?t=277355)). This device adds one more
-reason for the ceiling: the reader **paginates the whole section up front** (CSS-multicolumn column
-count), so layout cost tracks section size.
+- **MAX ≈ 250 KB per section** — the ceiling *and* the pack target. Comfortable here: a 250 KB Blink
+  layout / re-pagination is well under the budget on this SoC, and it's just under the de-facto reader
+  limit.
+- **Build sections by greedy packing**, not by emitting one file per chapter:
+  1. Take the source's chapters/blocks in reading order.
+  2. Append whole chapters to the current section until the **next** chapter would push it over MAX;
+     then start a new section with that chapter.
+  3. If a **single chapter alone exceeds MAX**, split *it* at a safe top-level block boundary (never
+     mid-paragraph/`figure`/`<kal-*>`) into ≤ MAX pieces; those pieces pack/stand as sections.
+- **No minimum.** A tiny chapter simply joins its neighbours; **a whole small book (≤ MAX) is ONE
+  section, one load.** This is the desired behaviour — fewer, fuller files; never a 3 KB file.
+- **Stable ids across split/merge** — deterministic per source position, so highlight/note ranges
+  (CFI-style anchors, §4) survive re-import. TOC/`href` resolve to `sectionId#anchor` *within* a packed
+  section (the reader paginates to the anchor).
+- **PDF caveat:** no semantic chapters — detect boundaries from outline/bookmarks/heading sizes, then
+  pack the same way; where structure is ambiguous, prefer fewer larger sections within MAX.
+
+**Why max-only (refs):** [Calibre 260 KB default](https://manual.calibre-ebook.com/conversion.html);
+[EPUB ~300 KB = a limited-hardware guideline, now a best-practice not a hard limit](https://idpf.org/forum/topic-917)
+([geekrant](https://www.geekrant.org/2012/10/26/epub-htmlxhtml-or-chapter-upper-file-size-limit-is-300kb/),
+[MobileRead](https://www.mobileread.com/forums/showthread.php?t=277355)); consolidating small files is a
+recognised optimisation ([concat→EPUB](https://tinyapps.org/blog/201502260700_concatenate_html.html)).
+A too-large chunk forces laying out the whole chunk (deep links / page counting) → a substantial pause;
+this device adds a reason for the ceiling — the reader **paginates the whole section up front**
+(CSS-multicolumn column count), so layout cost tracks section size. Nothing in the literature rewards a
+*minimum*, so we use the max as the pack target instead.
 
 ## 7. Build sequence
 
