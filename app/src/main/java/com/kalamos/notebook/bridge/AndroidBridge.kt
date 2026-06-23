@@ -306,7 +306,7 @@ class AndroidBridge(
             .edit().putBoolean("rotation_locked", locked).apply()
         fragment.requireActivity().runOnUiThread {
             fragment.requireActivity().requestedOrientation =
-                if (locked) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_NOSENSOR
+                if (locked) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }

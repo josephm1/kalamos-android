@@ -31,6 +31,13 @@ class MainActivity : AppCompatActivity() {
         // Pass null so the FragmentManager does NOT auto-restore a prior fragment state; we always
         // start fresh with the single AppFragment (which boots into the library). Work is autosaved.
         super.onCreate(null)
+        // Apply the saved rotation-lock preference as early as possible (default: locked to portrait so
+        // the accelerometer is ignored). The Settings toggle / bridge can switch it at runtime.
+        val rotLocked = getSharedPreferences("kalamos_prefs", android.content.Context.MODE_PRIVATE)
+            .getBoolean("rotation_locked", true)
+        requestedOrientation =
+            if (rotLocked) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         setContentView(R.layout.activity_main)
 
         supportFragmentManager.beginTransaction()
