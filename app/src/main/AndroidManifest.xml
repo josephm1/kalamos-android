@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <!-- Lets the user store notebooks in a real folder on another volume (e.g. the SD card) using
          fast direct file access. Granted by the user via Settings → All files access. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!-- Lets the rotation-lock setting drive the SYSTEM auto-rotate flag — needed because this
+         large-screen e-ink ROM ignores per-app requestedOrientation. Granted once via Settings. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
 
     <application
         android:name=".KalamosApp"

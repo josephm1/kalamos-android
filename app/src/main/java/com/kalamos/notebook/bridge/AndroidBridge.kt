@@ -298,16 +298,35 @@ class AndroidBridge(
         Toast.makeText(fragment.requireContext(), message, Toast.LENGTH_SHORT).show()
     }
 
-    /** Lock the screen orientation (ignore the accelerometer) while in the app, or restore auto-rotate.
-     *  Persisted; re-applied on launch by AppFragment. */
+    /** Lock the screen orientation while in the app, or restore auto-rotate. This large-screen e-ink
+     *  ROM ignores per-app requestedOrientation, so we ALSO drive the system auto-rotate flag
+     *  (Settings.System.ACCELEROMETER_ROTATION) — which needs WRITE_SETTINGS, granted once. Persisted. */
     @JavascriptInterface
     fun setRotationLocked(locked: Boolean) {
-        fragment.requireContext().getSharedPreferences("kalamos_prefs", android.content.Context.MODE_PRIVATE)
+        val ctx = fragment.requireContext()
+        ctx.getSharedPreferences("kalamos_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("rotation_locked", locked).apply()
         fragment.requireActivity().runOnUiThread {
             fragment.requireActivity().requestedOrientation =
                 if (locked) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                 else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        if (android.provider.Settings.System.canWrite(ctx)) {
+            try {
+                android.provider.Settings.System.putInt(ctx.contentResolver,
+                    android.provider.Settings.System.ACCELEROMETER_ROTATION, if (locked) 0 else 1)
+                if (locked) android.provider.Settings.System.putInt(ctx.contentResolver,
+                    android.provider.Settings.System.USER_ROTATION, android.view.Surface.ROTATION_0)
+            } catch (e: Exception) { /* ignore */ }
+        } else if (locked) {
+            // First time: send the user to grant "Modify system settings", then they toggle again.
+            try {
+                val i = Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    android.net.Uri.parse("package:" + ctx.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(i)
+                Toast.makeText(ctx, "Allow ‘Modify system settings’, then tap the rotation toggle again",
+                    Toast.LENGTH_LONG).show()
+            } catch (e: Exception) { /* ignore */ }
         }
     }
 

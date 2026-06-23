@@ -38,6 +38,15 @@ class MainActivity : AppCompatActivity() {
         requestedOrientation =
             if (rotLocked) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        // This ROM ignores per-app orientation, so also pin the SYSTEM auto-rotate flag (if granted).
+        if (rotLocked && android.provider.Settings.System.canWrite(this)) {
+            try {
+                android.provider.Settings.System.putInt(contentResolver,
+                    android.provider.Settings.System.ACCELEROMETER_ROTATION, 0)
+                android.provider.Settings.System.putInt(contentResolver,
+                    android.provider.Settings.System.USER_ROTATION, android.view.Surface.ROTATION_0)
+            } catch (e: Exception) { /* ignore */ }
+        }
         setContentView(R.layout.activity_main)
 
         supportFragmentManager.beginTransaction()
